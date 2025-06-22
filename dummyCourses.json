@@ -1,0 +1,34 @@
+[
+  {
+    "title": "MERN Stack Full Tutorial",
+    "description": "Complete MERN stack tutorial playlist with videos and assignments.",
+    "createdBy": "6857b0ed8cff4d649c56dba0",   
+    "videos": [
+      {
+        "title": "Introduction to MERN Stack",
+        "url": "https://www.youtube.com/watch?v=7CqJlxBYj-M",
+        "order": 1
+      },
+      {
+        "title": "MongoDB Tutorial for Beginners",
+        "url": "https://www.youtube.com/watch?v=0pJTRhKTOxk",
+        "order": 2
+      },
+      {
+        "title": "Express.js Crash Course",
+        "url": "https://www.youtube.com/watch?v=L72fhGm1tfE",
+        "order": 3
+      },
+      {
+        "title": "React Tutorial for Beginners",
+        "url": "https://www.youtube.com/watch?v=Ke90Tje7VS0",
+        "order": 4
+      },
+      {
+        "title": "Node.js Crash Course",
+        "url": "https://www.youtube.com/watch?v=fBNz5xF-Kx4",
+        "order": 5
+      }
+    ]
+  }
+]

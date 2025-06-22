@@ -1,19 +1,16 @@
-// routes/courseRoutes.js
 const express = require('express');
-const {
-  createCourse,
-  getCourses,
-  getCourseById,
-} = require('../controllers/courseController');
-
-const { protect, adminOnly } = require('../middleware/authMiddleware');
-
 const router = express.Router();
+const { createCourse, addVideo, deleteVideo, getCourses, getCourseById } = require('../controllers/courseController');
+const authMiddleware = require('../middleware/authMiddleware');
 
-router.route('/')
-  .get(getCourses)                       // Public: list all courses
-  .post(protect, adminOnly, createCourse); // Admin only to create
+// Public routes
+router.get('/', getCourses);
+router.get('/:courseId', getCourseById);
 
-router.get('/:id', getCourseById);      // Public: Get course details by id
+// Protect admin routes
+router.post('/', authMiddleware, createCourse);
+router.post('/video', authMiddleware, addVideo);
+router.delete('/:courseId/video/:videoId', authMiddleware, deleteVideo);
 
 module.exports = router;
+
