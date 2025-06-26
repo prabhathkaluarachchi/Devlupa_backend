@@ -1,20 +1,22 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware } = require('../middleware/authMiddleware');
-const { getUserProfile, getProgressSummary } = require('../controllers/userController');
-const User = require('../models/User'); // ✅ Required for progress routes
-const { enrollInCourse } = require('../controllers/userController');
 
-router.post('/enroll/:courseId', authMiddleware, enrollInCourse);
+// import the actual middleware functions you exported
+const { verifyToken } = require('../middleware/authMiddleware');
+const { getUserProfile, getProgressSummary, enrollInCourse } = require('../controllers/userController');
+const User = require('../models/User'); // For progress routes
+
+// Replace authMiddleware with verifyToken
+router.post('/enroll/:courseId', verifyToken, enrollInCourse);
 
 // Route: GET progress summary for the user
-router.get('/progress-summary', authMiddleware, getProgressSummary);
+router.get('/progress-summary', verifyToken, getProgressSummary);
 
-// Route: GET user profile (if you're using this)
-router.get('/profile', authMiddleware, getUserProfile);
+// Route: GET user profile
+router.get('/profile', verifyToken, getUserProfile);
 
 // Route: GET watched videos for a course
-router.get('/progress/:courseId', authMiddleware, async (req, res) => {
+router.get('/progress/:courseId', verifyToken, async (req, res) => {
   try {
     const userId = req.user._id;
     const { courseId } = req.params;
@@ -34,7 +36,7 @@ router.get('/progress/:courseId', authMiddleware, async (req, res) => {
 });
 
 // Route: POST mark a video as watched
-router.post('/progress/:courseId/:videoId', authMiddleware, async (req, res) => {
+router.post('/progress/:courseId/:videoId', verifyToken, async (req, res) => {
   try {
     const userId = req.user._id;
     const { courseId, videoId } = req.params;
@@ -61,5 +63,3 @@ router.post('/progress/:courseId/:videoId', authMiddleware, async (req, res) => 
 });
 
 module.exports = router;
-
-

@@ -1,9 +1,8 @@
-// middleware/authMiddleware.js
-
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-const authMiddleware = async (req, res, next) => {
+// ✅ Verify JWT and attach user
+const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -21,5 +20,17 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
-module.exports = { authMiddleware };
+// ✅ Check if user is admin
+const isAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+};
+
+module.exports = {
+  verifyToken,
+  isAdmin
+};
+
 

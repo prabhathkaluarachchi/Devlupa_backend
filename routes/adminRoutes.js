@@ -1,12 +1,12 @@
-// routes/adminRoutes.js
-
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const adminMiddleware = require('../middleware/adminMiddleware');
-const { getUsersProgress } = require('../controllers/adminController');
-const { authMiddleware } = require('../middleware/authMiddleware');
 
-router.get('/users-progress', authMiddleware, adminMiddleware, getUsersProgress);
+const { getUsersProgress, getDashboardSummary } = require("../controllers/adminController");
+const { verifyToken, isAdmin } = require("../middleware/authMiddleware");
+
+router.get("/users-progress", verifyToken, isAdmin, getUsersProgress);
+router.get("/dashboard-summary", verifyToken, isAdmin, getDashboardSummary);
 
 module.exports = router;
+
 
