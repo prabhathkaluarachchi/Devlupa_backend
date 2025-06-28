@@ -3,7 +3,7 @@ const router = express.Router();
 
 // import the actual middleware functions you exported
 const { verifyToken } = require('../middleware/authMiddleware');
-const { getUserProfile, getProgressSummary, enrollInCourse } = require('../controllers/userController');
+const { getUserProfile, getProgressSummary, enrollInCourse, getStudentProgress } = require('../controllers/userController');
 const User = require('../models/User'); // For progress routes
 
 // Replace authMiddleware with verifyToken
@@ -11,6 +11,9 @@ router.post('/enroll/:courseId', verifyToken, enrollInCourse);
 
 // Route: GET progress summary for the user
 router.get('/progress-summary', verifyToken, getProgressSummary);
+// Route: GET student progress for dashboard
+router.get('/studentprogress', verifyToken, getStudentProgress);
+
 
 // Route: GET user profile
 router.get('/profile', verifyToken, getUserProfile);
