@@ -13,7 +13,7 @@ const transporter = nodemailer.createTransport({
 });
 
 // List of admin emails
-const adminEmails = ["admin@devlupa.com", "root@devlupa.com"];
+const adminEmails = ["fmprabhath@gmail.com", "admin@devlupa.com"];
 
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
