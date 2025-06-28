@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -7,7 +9,6 @@ const courseRoutes = require('./routes/courseRoutes');
 const userRoutes = require('./routes/userRoutes');  // if you have user routes
 const adminRoutes = require('./routes/adminRoutes');
 
-dotenv.config();
 connectDB();
 
 const app = express();

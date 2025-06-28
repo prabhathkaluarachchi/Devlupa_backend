@@ -46,6 +46,14 @@ const userSchema = new mongoose.Schema(
     certificates: [
       { type: mongoose.Schema.Types.ObjectId, ref: "Certificate" },
     ],
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
