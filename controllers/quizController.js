@@ -2,6 +2,57 @@
 const Quiz = require("../models/Quiz");
 const QuizResult = require("../models/QuizResult");
 
+// Fetch logged-in student's quiz progress
+exports.getStudentQuizProgress = async (req, res) => {
+  try {
+    const studentId = req.user._id;
+
+    // Total quizzes available (can be filtered by student's enrolled courses if needed)
+    const totalQuizzes = await Quiz.countDocuments();
+
+    // Fetch quiz results and populate quiz info
+    const results = await QuizResult.find({ student: studentId })
+      .populate("quiz", "title questions")
+      .lean();
+
+    if (!results.length) {
+      return res.json({
+        quizzes: [],
+        completedQuizzes: 0,
+        avgScore: 0,
+        completionPercentage: 0,
+      });
+    }
+
+    // Map results to frontend format
+    const quizzes = results.map((r) => ({
+      quizId: r.quiz._id.toString(),
+      quizTitle: r.quiz.title,
+      totalQuestions: r.quiz.questions.length,
+      correctAnswers: r.score,
+    }));
+
+    const completedQuizzes = results.length;
+
+    const avgScore = Math.round(
+      results.reduce(
+        (sum, r) => sum + (r.score / r.quiz.questions.length) * 100,
+        0
+      ) / completedQuizzes
+    );
+
+    const completionPercentage =
+      totalQuizzes === 0
+        ? 0
+        : Math.round((completedQuizzes / totalQuizzes) * 100);
+
+    res.json({ quizzes, completedQuizzes, avgScore, completionPercentage });
+  } catch (error) {
+    console.error("Error fetching student quiz progress:", error);
+    res.status(500).json({ message: "Failed to fetch student quiz progress" });
+  }
+};
+
 // Create a new quiz (Admin only)
 exports.createQuiz = async (req, res) => {
   try {
@@ -124,6 +175,10 @@ exports.submitQuiz = async (req, res) => {
       student: studentId,
       quiz: quizId,
       score,
+      totalQuestions: quiz.questions.length,
+      correctAnswers: score,
+      quizTitle: quiz.title,
+      answers, // ✅ Store student's selected answers here
     });
 
     return res.json({ message: "Quiz submitted successfully", score });
@@ -136,11 +191,11 @@ exports.submitQuiz = async (req, res) => {
 
 exports.getAllQuizzes = async (req, res) => {
   try {
-    const quizzes = await Quiz.find().populate('course', 'title');
+    const quizzes = await Quiz.find().populate("course", "title");
     res.json(quizzes);
   } catch (error) {
-    console.error('Error fetching quizzes:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error("Error fetching quizzes:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -156,8 +211,6 @@ exports.deleteQuiz = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
-
 
 // Get all quiz results for a quiz (Admin only)
 exports.getQuizResults = async (req, res) => {
@@ -190,7 +243,10 @@ exports.getQuizStatus = async (req, res) => {
       return res.status(400).json({ message: "Quiz ID is required" });
     }
 
-    const result = await QuizResult.findOne({ quiz: quizId, student: studentId });
+    const result = await QuizResult.findOne({
+      quiz: quizId,
+      student: studentId,
+    });
 
     if (!result) {
       return res.json({ completed: false });
@@ -204,10 +260,7 @@ exports.getQuizStatus = async (req, res) => {
 
     // Reconstruct the original answers from the quiz
     // We'll assume the student picked the correct ones only
-    const answers = quiz.questions.map((q, i) => {
-      const correctIndex = q.options.findIndex((opt) => opt.isCorrect);
-      return correctIndex !== -1 ? correctIndex : -1;
-    });
+    const answers = result.answers; // ✅ Use student's actual selected answers
 
     res.json({
       completed: true,
@@ -219,4 +272,3 @@ exports.getQuizStatus = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-

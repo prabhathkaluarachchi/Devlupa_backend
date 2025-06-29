@@ -2,6 +2,12 @@ const User = require("../models/User");
 const Course = require("../models/Course");
 const UserProgress = require("../models/UserProgress");
 
+
+
+
+
+
+
 // GET /api/users/progress-summary
 const getStudentProgress = async (req, res) => {
   try {

@@ -5,6 +5,10 @@ const router = express.Router();
 const { verifyToken } = require('../middleware/authMiddleware');
 const { getUserProfile, getProgressSummary, enrollInCourse, getStudentProgress } = require('../controllers/userController');
 const User = require('../models/User'); // For progress routes
+const { getStudentQuizProgress } = require("../controllers/quizController");
+
+
+router.get('/studentquizprogress', verifyToken, getStudentQuizProgress);
 
 // Replace authMiddleware with verifyToken
 router.post('/enroll/:courseId', verifyToken, enrollInCourse);
