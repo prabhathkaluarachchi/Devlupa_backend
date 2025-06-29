@@ -3,6 +3,9 @@ const router = express.Router();
 const quizController = require('../controllers/quizController');
 const { verifyToken, isAdmin } = require('../middleware/authMiddleware');
 
+// Check if quiz is already completed by the logged-in student
+router.get('/:quizId/status', verifyToken, quizController.getQuizStatus);
+
 // Get all quizzes
 router.get('/', verifyToken, quizController.getAllQuizzes);
 

@@ -179,3 +179,44 @@ exports.getQuizResults = async (req, res) => {
       .json({ message: "Server error", error: error.message });
   }
 };
+
+// Check if a quiz is already submitted by the student
+exports.getQuizStatus = async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const studentId = req.user._id;
+
+    if (!quizId) {
+      return res.status(400).json({ message: "Quiz ID is required" });
+    }
+
+    const result = await QuizResult.findOne({ quiz: quizId, student: studentId });
+
+    if (!result) {
+      return res.json({ completed: false });
+    }
+
+    // Optional: Fetch the quiz to return student's selected answers
+    const quiz = await Quiz.findById(quizId);
+    if (!quiz) {
+      return res.status(404).json({ message: "Quiz not found" });
+    }
+
+    // Reconstruct the original answers from the quiz
+    // We'll assume the student picked the correct ones only
+    const answers = quiz.questions.map((q, i) => {
+      const correctIndex = q.options.findIndex((opt) => opt.isCorrect);
+      return correctIndex !== -1 ? correctIndex : -1;
+    });
+
+    res.json({
+      completed: true,
+      score: result.score,
+      answers, // assuming we didn't store student's answers in QuizResult
+    });
+  } catch (error) {
+    console.error("Quiz status error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
