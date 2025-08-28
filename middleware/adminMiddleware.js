@@ -10,3 +10,13 @@ function adminMiddleware(req, res, next) {
 }
 
 module.exports = adminMiddleware;
+
+// function adminMiddleware(req, res, next) {
+//   if (req.user && req.user.role === 'admin') {
+//     next();
+//   } else {
+//     res.status(403).json({ message: 'Access denied, admin only' });
+//   }
+// }
+
+// module.exports = { adminMiddleware }; // ✅ export as object

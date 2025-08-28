@@ -3,19 +3,70 @@ const Quiz = require("../models/Quiz");
 const QuizResult = require("../models/QuizResult");
 
 // Fetch logged-in student's quiz progress
+// exports.getStudentQuizProgress = async (req, res) => {
+//   try {
+//     const studentId = req.user._id;
+
+//     // Total quizzes available (can be filtered by student's enrolled courses if needed)
+//     const totalQuizzes = await Quiz.countDocuments();
+
+//     // Fetch quiz results and populate quiz info
+//     const results = await QuizResult.find({ student: studentId })
+//       .populate("quiz", "title questions")
+//       .lean();
+
+//     if (!results.length) {
+//       return res.json({
+//         quizzes: [],
+//         completedQuizzes: 0,
+//         avgScore: 0,
+//         completionPercentage: 0,
+//       });
+//     }
+
+//     // Map results to frontend format
+//     const quizzes = results.map((r) => ({
+//       quizId: r.quiz._id.toString(),
+//       quizTitle: r.quiz.title,
+//       totalQuestions: r.quiz.questions.length,
+//       correctAnswers: r.score,
+//     }));
+
+//     const completedQuizzes = results.length;
+
+//     const avgScore = Math.round(
+//       results.reduce(
+//         (sum, r) => sum + (r.score / r.quiz.questions.length) * 100,
+//         0
+//       ) / completedQuizzes
+//     );
+
+//     const completionPercentage =
+//       totalQuizzes === 0
+//         ? 0
+//         : Math.round((completedQuizzes / totalQuizzes) * 100);
+
+//     res.json({ quizzes, completedQuizzes, avgScore, completionPercentage });
+//   } catch (error) {
+//     console.error("Error fetching student quiz progress:", error);
+//     res.status(500).json({ message: "Failed to fetch student quiz progress" });
+//   }
+// };
+
+// controllers/quizController.js
 exports.getStudentQuizProgress = async (req, res) => {
   try {
     const studentId = req.user._id;
 
-    // Total quizzes available (can be filtered by student's enrolled courses if needed)
+    // Total quizzes in DB
     const totalQuizzes = await Quiz.countDocuments();
 
-    // Fetch quiz results and populate quiz info
+    // Use the correct field name from QuizResult schema
     const results = await QuizResult.find({ student: studentId })
       .populate("quiz", "title questions")
       .lean();
 
-    if (!results.length) {
+    if (!results || results.length === 0) {
       return res.json({
         quizzes: [],
         completedQuizzes: 0,
@@ -24,34 +75,45 @@ exports.getStudentQuizProgress = async (req, res) => {
       });
     }
 
-    // Map results to frontend format
     const quizzes = results.map((r) => ({
-      quizId: r.quiz._id.toString(),
-      quizTitle: r.quiz.title,
-      totalQuestions: r.quiz.questions.length,
-      correctAnswers: r.score,
+      quizId: r.quiz?._id?.toString(),
+      quizTitle: r.quiz?.title || "Untitled Quiz",
+      totalQuestions: r.quiz?.questions?.length || 0,
+      correctAnswers: r.correctAnswers, // ✅ use stored field
+      score: r.score, // ✅ raw score (number of correct answers)
+      percentage:
+        r.quiz?.questions?.length > 0
+          ? Math.round((r.score / r.quiz.questions.length) * 100)
+          : 0,
     }));
 
     const completedQuizzes = results.length;
 
     const avgScore = Math.round(
       results.reduce(
-        (sum, r) => sum + (r.score / r.quiz.questions.length) * 100,
+        (sum, r) =>
+          sum +
+          (r.quiz?.questions?.length > 0
+            ? (r.score / r.quiz.questions.length) * 100
+            : 0),
         0
       ) / completedQuizzes
     );
 
     const completionPercentage =
-      totalQuizzes === 0
-        ? 0
-        : Math.round((completedQuizzes / totalQuizzes) * 100);
+      totalQuizzes > 0
+        ? Math.round((completedQuizzes / totalQuizzes) * 100)
+        : 0;
 
     res.json({ quizzes, completedQuizzes, avgScore, completionPercentage });
   } catch (error) {
     console.error("Error fetching student quiz progress:", error);
-    res.status(500).json({ message: "Failed to fetch student quiz progress" });
+    res
+      .status(500)
+      .json({ message: "Failed to fetch student quiz progress" });
   }
 };
+
 
 // Create a new quiz (Admin only)
 exports.createQuiz = async (req, res) => {

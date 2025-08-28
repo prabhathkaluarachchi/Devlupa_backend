@@ -8,6 +8,7 @@ const courseRoutes = require('./routes/courseRoutes');
 const userRoutes = require('./routes/userRoutes');  // if you have user routes
 const adminRoutes = require('./routes/adminRoutes');
 const quizRoutes = require('./routes/quizRoutes');
+const assignmentRoutes = require('./routes/assignmentRoutes');
 
 connectDB();
 
@@ -21,6 +22,7 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/users', userRoutes);  // Add if applicable
 app.use('/api/admin', adminRoutes);
 app.use('/api/quizzes', quizRoutes);
+app.use('/api/assignments', assignmentRoutes);
 
 // Optional: basic error handler middleware
 app.use((err, req, res, next) => {
