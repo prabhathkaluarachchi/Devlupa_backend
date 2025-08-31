@@ -6,6 +6,14 @@ const submissionSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  assignmentId: { // <-- important for assignments
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Assignment',
+  },
+  quizId: { // <-- optional if it's a quiz submission
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Quiz',
+  },
   courseId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Course',
@@ -19,12 +27,18 @@ const submissionSchema = new mongoose.Schema({
   content: {
     type: String,
   },
+  fileUrl: { // <-- for uploaded assignment files
+    type: String,
+  },
   score: {
     type: Number,
-    default: 0,
   },
   feedback: {
     type: String,
+  },
+  status: { // "submitted" or "graded"
+    type: String,
+    enum: ['submitted', 'graded'],
   },
 }, {
   timestamps: true,

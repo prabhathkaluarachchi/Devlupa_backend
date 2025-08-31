@@ -127,26 +127,35 @@ const getUsersQuizProgress = async (req, res) => {
 const getUsersAssignmentProgress = async (req, res) => {
   try {
     const students = await User.find({ role: "student" }).lean();
+    const allAssignments = await Assignment.find().lean();
 
     const results = await Promise.all(
       students.map(async (student) => {
-        // Fixed: use correct field names from AssignmentSubmission schema
-        const submissions = await AssignmentSubmission.find({ student: student._id })
-          .populate("assignment")
-          .lean();
+        // Fetch submissions for this student
+        const submissions = await AssignmentSubmission.find({ student: student._id }).lean();
 
-        const assignments = submissions.map((sub) => ({
-          assignmentId: sub.assignment._id,
-          title: sub.assignment.title,
-          submitted: true,
-          score: sub.score ?? null, // null if not graded yet
-          totalScore: sub.assignment.totalScore || 100, // default total score
-        }));
+        // Map assignment ID → submission
+        const submissionMap = new Map();
+        submissions.forEach((sub) => {
+          submissionMap.set(sub.assignment.toString(), sub);
+        });
+
+        // Combine all assignments with student's submission info
+        const assignmentsWithStatus = allAssignments.map((a) => {
+          const sub = submissionMap.get(a._id.toString());
+          return {
+            assignmentId: a._id,
+            title: a.title,
+            submitted: !!sub,
+            score: sub ? sub.score ?? null : null,
+            totalScore: a.totalScore || 100,
+          };
+        });
 
         return {
           userId: student._id,
           name: student.name,
-          assignments,
+          assignments: assignmentsWithStatus,
         };
       })
     );
@@ -157,6 +166,7 @@ const getUsersAssignmentProgress = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch assignment progress" });
   }
 };
+
 
 // =====================================================
 // ✅ EXPORT ALL CONTROLLERS

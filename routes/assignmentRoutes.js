@@ -2,15 +2,45 @@ const express = require('express');
 const router = express.Router();
 const assignmentController = require('../controllers/assignmentController');
 const { verifyToken } = require('../middleware/authMiddleware');
-const adminMiddleware = require('../middleware/adminMiddleware'); // ✅ default function export
+const adminMiddleware = require('../middleware/adminMiddleware');
+const multer = require('multer');
+const path = require('path');
+
+// ================== MULTER CONFIG ==================
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/'); // make sure this folder exists
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${file.fieldname}${ext}`);
+  },
+});
+
+const upload = multer({ storage });
 
 // ================== ADMIN ROUTES ==================
 
-// Create assignment
-router.post('/', verifyToken, adminMiddleware, assignmentController.createAssignment);
+// Add this near the top, after your existing multer setup
+router.post(
+  '/:id/submit',
+  verifyToken,
+  upload.single('file'), // ← handle student uploaded file
+  assignmentController.submitAssignment
+);
 
-// Get all assignments
-router.get('/', verifyToken, adminMiddleware, assignmentController.getAllAssignments);
+
+// Create assignment with optional image upload
+router.post(
+  '/',
+  verifyToken,
+  adminMiddleware,
+  upload.single('image'),
+  assignmentController.createAssignment
+);
+
+// Get all assignments (Admin view)
+router.get('/', verifyToken, adminMiddleware, assignmentController.getAssignments);
 
 // Delete assignment
 router.delete('/:id', verifyToken, adminMiddleware, assignmentController.deleteAssignment);
@@ -26,11 +56,20 @@ router.get('/course/:courseId', verifyToken, assignmentController.getAssignments
 // Submit assignment
 router.post('/:id/submit', verifyToken, assignmentController.submitAssignment);
 
-// GET all assignments (student view)
+// Get all assignments (student view)
 router.get('/all', verifyToken, assignmentController.getAllAssignmentsForStudent);
 
 // Get single assignment (student)
-router.get("/:id", verifyToken, assignmentController.getAssignmentById);
+router.get('/:id', verifyToken, assignmentController.getAssignmentById);
+
+
+// Admin fetch submission for grading
+router.get(
+  "/:assignmentId/user/:userId",
+  verifyToken,
+  adminMiddleware,
+  assignmentController.getSubmissionForGrading
+);
 
 
 

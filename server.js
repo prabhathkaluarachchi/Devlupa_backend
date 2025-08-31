@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path'); // ✅ for serving uploads
 const connectDB = require('./config/db');
 
 // Import route files
@@ -21,6 +22,10 @@ const app = express();
 app.use(cors());
 app.use(express.json()); // parse JSON bodies
 
+// ------------------------ STATIC FILES ------------------------ //
+// Serve uploaded images
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // ------------------------ ROUTES ------------------------ //
 // Auth routes
 app.use('/api/auth', authRoutes);
@@ -29,7 +34,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
 
 // Student user routes
-app.use('/api/users', userRoutes); // Mount user routes ONCE here
+app.use('/api/users', userRoutes);
 
 // Admin-specific routes
 app.use('/api/admin', adminRoutes);

@@ -1,66 +1,71 @@
-const Assignment = require('../models/Assignment');
-const Submission = require('../models/Submission');
+const mongoose = require("mongoose");
+const Assignment = require("../models/Assignment");
+const AssignmentSubmission = require("../models/AssignmentSubmission");
 
 // ======================= ADMIN =======================
 
-// Create new assignment
+// Create new assignment with optional image and deadline
 exports.createAssignment = async (req, res) => {
   try {
-    const { courseId, title, description, imageUrl, dueDate } = req.body;
+    const { courseId, title, description, dueDate } = req.body;
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     const assignment = new Assignment({
-      courseId,
       title,
       description,
+      courseId,
+      dueDate: dueDate ? new Date(dueDate) : null,
       imageUrl,
-      dueDate,
-      createdBy: req.user.id, // admin
     });
 
     await assignment.save();
     res.status(201).json(assignment);
   } catch (error) {
-    res.status(500).json({ message: 'Error creating assignment', error: error.message });
+    console.error(error);
+    res
+      .status(500)
+      .json({ message: "Error creating assignment", error: error.message });
   }
 };
 
-// Get all assignments (admin view)
-exports.getAllAssignments = async (req, res) => {
+// List All Assignments (Admin view)
+exports.getAssignments = async (req, res) => {
   try {
-    const assignments = await Assignment.find().populate('courseId', 'title');
+    const assignments = await Assignment.find()
+      .populate("courseId", "title")
+      .sort({ dueDate: 1 });
     res.json(assignments);
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching assignments', error: error.message });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch assignments" });
   }
 };
 
-// Delete assignment
+// Delete Assignment
 exports.deleteAssignment = async (req, res) => {
   try {
-    await Assignment.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Assignment deleted' });
-  } catch (error) {
-    res.status(500).json({ message: 'Error deleting assignment', error: error.message });
+    const { id } = req.params;
+    await Assignment.findByIdAndDelete(id);
+    res.json({ message: "Assignment deleted" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete assignment" });
   }
 };
 
 // ======================= STUDENT =======================
 
-// Get assignments by course (student view)
+// Get assignments by course
 exports.getAssignmentsByCourse = async (req, res) => {
   try {
     const courseId = req.params.courseId;
-
-    // Validate courseId
     if (!mongoose.Types.ObjectId.isValid(courseId)) {
       return res.status(400).json({ message: "Invalid course ID" });
     }
 
-    // Fetch assignments for this course
-    const assignments = await Assignment.find({
-      courseId: mongoose.Types.ObjectId(courseId),
-    }).sort({ dueDate: 1 }); // optional: sort by due date
-
+    const assignments = await Assignment.find({ courseId }).sort({
+      dueDate: 1,
+    });
     res.json(assignments);
   } catch (error) {
     console.error("Error fetching assignments:", error);
@@ -71,50 +76,53 @@ exports.getAssignmentsByCourse = async (req, res) => {
   }
 };
 
-
-// Submit assignment (student submits code as text)
+// Submit assignment (student)
 exports.submitAssignment = async (req, res) => {
   try {
-    const assignmentId = req.params.id; // get assignment ID from URL
-    const { content } = req.body;       // submission text/code
+    const assignmentId = req.params.id;
+    const { content } = req.body;
+    const fileUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
-    // Optional: fetch assignment to get courseId
     const assignment = await Assignment.findById(assignmentId);
-    if (!assignment) {
-      return res.status(404).json({ message: 'Assignment not found' });
-    }
+    if (!assignment)
+      return res.status(404).json({ message: "Assignment not found" });
 
-    // Check if student already submitted
-    const existing = await Submission.findOne({
-      userId: req.user.id,
-      assignmentId,
+    const existing = await AssignmentSubmission.findOne({
+      student: req.user.id,
+      assignment: assignmentId,
     });
-    if (existing) {
-      return res.status(400).json({ message: 'You have already submitted this assignment' });
-    }
+    if (existing)
+      return res
+        .status(400)
+        .json({ message: "You have already submitted this assignment" });
 
-    const submission = new Submission({
-      userId: req.user.id,
-      assignmentId,
-      courseId: assignment.courseId,
-      taskType: 'assignment',
-      content,
+    const submission = new AssignmentSubmission({
+      student: req.user.id,
+      assignment: assignmentId,
+      submission: content,
+      fileUrl,
+      score: null,
     });
 
     await submission.save();
     res.status(201).json(submission);
   } catch (error) {
-    res.status(500).json({ message: 'Error submitting assignment', error: error.message });
+    console.error("Error submitting assignment:", error);
+    res
+      .status(500)
+      .json({ message: "Error submitting assignment", error: error.message });
   }
 };
 
 // Get all assignments (student view)
 exports.getAllAssignmentsForStudent = async (req, res) => {
   try {
-    const assignments = await Assignment.find(); // fetch all assignments
+    const assignments = await Assignment.find().sort({ dueDate: 1 });
     res.json(assignments);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching assignments', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error fetching assignments", error: error.message });
   }
 };
 
@@ -125,17 +133,37 @@ exports.getAssignmentById = async (req, res) => {
       "courseId",
       "title"
     );
-    if (!assignment) {
+
+    if (!assignment)
       return res.status(404).json({ message: "Assignment not found" });
+
+    const submission = await AssignmentSubmission.findOne({
+      assignment: assignment._id,
+      student: req.user.id,
+    });
+
+    let studentSubmission = null;
+    if (submission) {
+      studentSubmission = {
+        content: submission.submission,
+        fileUrl: submission.fileUrl,
+        grade: submission.score,
+        status: submission.score != null ? "graded" : "submitted",
+      };
     }
-    res.json(assignment);
+
+    res.json({
+      ...assignment.toObject(),
+      submitted: !!submission,
+      studentSubmission,
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching assignment", error: error.message });
+    console.error("Error fetching assignment:", error);
+    res
+      .status(500)
+      .json({ message: "Error fetching assignment", error: error.message });
   }
 };
-
-
-
 
 // ======================= ADMIN GRADING =======================
 
@@ -143,15 +171,40 @@ exports.getAssignmentById = async (req, res) => {
 exports.gradeAssignment = async (req, res) => {
   try {
     const { score, feedback } = req.body;
-
-    const submission = await Submission.findByIdAndUpdate(
+    const submission = await AssignmentSubmission.findByIdAndUpdate(
       req.params.submissionId,
       { score, feedback },
       { new: true }
     );
-
     res.json(submission);
   } catch (error) {
-    res.status(500).json({ message: 'Error grading assignment', error: error.message });
+    console.error("Error grading assignment:", error);
+    res
+      .status(500)
+      .json({ message: "Error grading assignment", error: error.message });
   }
 };
+
+
+// Get a specific student's submission for an assignment (Admin)
+exports.getSubmissionForGrading = async (req, res) => {
+  try {
+    const { assignmentId, userId } = req.params;
+
+    const submission = await AssignmentSubmission.findOne({
+      assignment: assignmentId, // or assignmentId
+      student: userId           // or userId depending on schema
+    }).populate("assignment student", "title name email");
+
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found" });
+    }
+
+    res.json(submission);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
