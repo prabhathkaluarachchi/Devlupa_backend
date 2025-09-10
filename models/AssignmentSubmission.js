@@ -13,18 +13,28 @@ const assignmentSubmissionSchema = new mongoose.Schema(
       required: true,
     },
     submission: {
-      type: String,
-      required: true, // student's answer text
+      type: String, // student's answer text
+    },
+    fileUrl: {
+      type: String, // optional file upload
     },
     score: {
       type: Number,
-      default: null, // manual grading, null until graded
+      default: null, // stays null until admin grades
+    },
+    remarks: {
+      type: String, // feedback from admin
+      default: "",
+    },
+    status: {
+      type: String,
+      enum: ["submitted", "graded"],
+      default: "submitted",
     },
     submittedAt: {
       type: Date,
       default: Date.now,
     },
-    fileUrl: { type: String }, // optional if students upload files
   },
   {
     timestamps: true,

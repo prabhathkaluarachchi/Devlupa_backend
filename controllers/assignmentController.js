@@ -148,7 +148,8 @@ exports.getAssignmentById = async (req, res) => {
         content: submission.submission,
         fileUrl: submission.fileUrl,
         grade: submission.score,
-        status: submission.score != null ? "graded" : "submitted",
+        remarks: submission.remarks, // ✅ include feedback
+        status: submission.status || (submission.score != null ? "graded" : "submitted"),
       };
     }
 
@@ -165,17 +166,28 @@ exports.getAssignmentById = async (req, res) => {
   }
 };
 
+
 // ======================= ADMIN GRADING =======================
 
 // Grade assignment (admin gives score + feedback)
 exports.gradeAssignment = async (req, res) => {
   try {
-    const { score, feedback } = req.body;
+    const { score, remarks } = req.body;
+
     const submission = await AssignmentSubmission.findByIdAndUpdate(
       req.params.submissionId,
-      { score, feedback },
+      {
+        score,
+        remarks,             // ✅ store feedback
+        status: "graded",    // ✅ mark as graded
+      },
       { new: true }
     );
+
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found" });
+    }
+
     res.json(submission);
   } catch (error) {
     console.error("Error grading assignment:", error);
@@ -184,6 +196,7 @@ exports.gradeAssignment = async (req, res) => {
       .json({ message: "Error grading assignment", error: error.message });
   }
 };
+
 
 
 // Get a specific student's submission for an assignment (Admin)
