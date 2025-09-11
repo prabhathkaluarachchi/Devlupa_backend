@@ -220,4 +220,39 @@ exports.getSubmissionForGrading = async (req, res) => {
   }
 };
 
+// Get assignment progress for logged-in student
+exports.getStudentAssignmentProgress = async (req, res) => {
+  try {
+    const studentId = req.user.id;
+
+    // Fetch all assignments
+    const assignments = await Assignment.find().sort({ dueDate: 1 });
+
+    // Fetch student's submissions
+    const submissions = await AssignmentSubmission.find({ student: studentId });
+
+    const progress = assignments.map((assignment) => {
+      const submission = submissions.find(
+        (s) => s.assignment.toString() === assignment._id.toString()
+      );
+
+      return {
+        assignmentId: assignment._id,
+        assignmentTitle: assignment.title,
+        status: submission
+          ? submission.status === "graded"
+            ? "Graded"
+            : "Submitted"
+          : "Pending",
+      };
+    });
+
+    res.json({ assignments: progress });
+  } catch (error) {
+    console.error("Error fetching student assignment progress:", error);
+    res.status(500).json({ message: "Failed to fetch assignment progress" });
+  }
+};
+
+
 
