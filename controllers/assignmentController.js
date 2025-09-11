@@ -244,6 +244,7 @@ exports.getStudentAssignmentProgress = async (req, res) => {
             ? "Graded"
             : "Submitted"
           : "Pending",
+        score: submission && submission.score != null ? submission.score : null, // ✅ include grade if exists
       };
     });
 
