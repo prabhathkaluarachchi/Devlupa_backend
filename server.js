@@ -1,42 +1,43 @@
 require('dotenv').config();
-
 const express = require('express');
 const cors = require('cors');
-const path = require('path'); // ✅ for serving uploads
+const path = require('path'); // For serving uploaded files
 const connectDB = require('./config/db');
 
-// Import route files
+// ------------------------ ROUTES ------------------------ //
 const authRoutes = require('./routes/authRoutes');
 const courseRoutes = require('./routes/courseRoutes');
-const userRoutes = require('./routes/userRoutes'); // Student routes only
-const adminRoutes = require('./routes/adminRoutes');
+const userRoutes = require('./routes/userRoutes'); // Student routes
+const adminRoutes = require('./routes/adminRoutes'); // Admin + CV filter
 const quizRoutes = require('./routes/quizRoutes');
 const assignmentRoutes = require('./routes/assignmentRoutes');
 
-// Connect to MongoDB
+// ------------------------ CONNECT TO DB ------------------------ //
 connectDB();
 
+// ------------------------ INITIALIZE APP ------------------------ //
 const app = express();
 
-// Middleware
+// ------------------------ MIDDLEWARE ------------------------ //
 app.use(cors());
-app.use(express.json()); // parse JSON bodies
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Optional, for form data
 
 // ------------------------ STATIC FILES ------------------------ //
-// Serve uploaded images
+// Serve uploaded files (e.g., CVs, assignment submissions)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ------------------------ ROUTES ------------------------ //
-// Auth routes
+// ------------------------ API ROUTES ------------------------ //
+// Authentication routes
 app.use('/api/auth', authRoutes);
 
-// Course routes
+// Courses
 app.use('/api/courses', courseRoutes);
 
 // Student user routes
 app.use('/api/users', userRoutes);
 
-// Admin-specific routes
+// Admin routes (includes dashboard + CV filter)
 app.use('/api/admin', adminRoutes);
 
 // Quiz routes
@@ -47,11 +48,11 @@ app.use('/api/assignments', assignmentRoutes);
 
 // ------------------------ ERROR HANDLER ------------------------ //
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('❌ Server Error:', err.stack);
   res.status(500).json({ message: 'Something went wrong!' });
 });
 
-// ------------------------ SERVER START ------------------------ //
+// ------------------------ START SERVER ------------------------ //
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
   console.log(`🚀 Devlupa backend running on port ${PORT}`)
