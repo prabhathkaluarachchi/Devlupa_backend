@@ -43,12 +43,20 @@ router.post(
   cvController.analyzeCV
 );
 
-// Send registration link
+// Send registration link (single email)
 router.post(
   "/send-link",
   verifyToken,
   isAdmin,
   cvController.sendRegistrationLink
+);
+
+// Send bulk registration links (NEW ENDPOINT)
+router.post(
+  "/send-bulk-links",
+  verifyToken,
+  isAdmin,
+  cvController.sendBulkRegistrationLinks
 );
 
 module.exports = router;
