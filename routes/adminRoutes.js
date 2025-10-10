@@ -10,7 +10,7 @@ const {
   getUsersAssignmentProgress,
 } = require("../controllers/adminController");
 
-const cvController = require("../controllers/cvController"); // add CV controller
+const cvController = require("../controllers/cvController");
 const { verifyToken, isAdmin } = require("../middleware/authMiddleware");
 
 // ================== ADMIN DASHBOARD ROUTES ==================
@@ -34,16 +34,16 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Analyze Multiple CVs - UPDATED for multiple files
+// Analyze Multiple CVs
 router.post(
   "/cv-filter",
   verifyToken,
   isAdmin,
-  upload.array("cvs", 100), // Changed from single() to array(), max 100 files
+  upload.array("cvs", 100),
   cvController.analyzeCV
 );
 
-// Send registration link (single email)
+// Send registration link (single)
 router.post(
   "/send-link",
   verifyToken,
@@ -51,12 +51,20 @@ router.post(
   cvController.sendRegistrationLink
 );
 
-// Send bulk registration links (NEW ENDPOINT)
+// Send bulk registration links
 router.post(
   "/send-bulk-links",
   verifyToken,
   isAdmin,
   cvController.sendBulkRegistrationLinks
+);
+
+// Generate PDF report (NEW)
+router.post(
+  "/generate-report",
+  verifyToken,
+  isAdmin,
+  cvController.generateReport
 );
 
 module.exports = router;
