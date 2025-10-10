@@ -29,17 +29,17 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "uploads/"),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${file.fieldname}${ext}`);
+    cb(null, `${Date.now()}-${file.originalname}`);
   },
 });
 const upload = multer({ storage });
 
-// Analyze CV
+// Analyze Multiple CVs - UPDATED for multiple files
 router.post(
   "/cv-filter",
   verifyToken,
   isAdmin,
-  upload.single("cv"),
+  upload.array("cvs", 100), // Changed from single() to array(), max 100 files
   cvController.analyzeCV
 );
 
