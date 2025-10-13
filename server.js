@@ -46,6 +46,11 @@ app.use('/api/quizzes', quizRoutes);
 // Assignment routes
 app.use('/api/assignments', assignmentRoutes);
 
+// ------------------------ ROOT ROUTE ------------------------ //
+app.get('/', (req, res) => {
+  res.send('🚀 Devlupa Backend is Running Successfully!');
+});
+
 // ------------------------ ERROR HANDLER ------------------------ //
 app.use((err, req, res, next) => {
   console.error('❌ Server Error:', err.stack);
