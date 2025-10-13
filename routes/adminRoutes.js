@@ -24,15 +24,15 @@ router.get(
   getUsersAssignmentProgress
 );
 
-// ------------------- Multer setup for CV uploads ------------------- //
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${file.originalname}`);
-  },
+// ------------------- Multer setup for CV uploads (UPDATED FOR MEMORY STORAGE) ------------------- //
+const storage = multer.memoryStorage(); // Use memory storage instead of disk storage
+
+const upload = multer({ 
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  }
 });
-const upload = multer({ storage });
 
 // Analyze Multiple CVs
 router.post(
@@ -66,5 +66,32 @@ router.post(
   isAdmin,
   cvController.generateReport
 );
+
+// ================== CV SCREENING HISTORY & MANAGEMENT ==================
+
+// Get CV screening history
+router.get(
+  "/cv-screening-history",
+  verifyToken,
+  isAdmin,
+  cvController.getScreeningHistory
+);
+
+// Get specific screening details
+router.get(
+  "/cv-screening/:screeningId",
+  verifyToken,
+  isAdmin,
+  cvController.getScreeningDetails
+);
+
+// Download CV file
+router.get(
+  "/download-cv/:fileId",
+  verifyToken,
+  isAdmin,
+  cvController.downloadCV
+);
+
 
 module.exports = router;

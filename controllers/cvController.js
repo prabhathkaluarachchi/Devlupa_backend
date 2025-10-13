@@ -1,14 +1,13 @@
 require("dotenv").config();
-const fs = require("fs");
-const path = require("path");
+const mongoose = require("mongoose");
 const nodemailer = require("nodemailer");
 const fetch = global.fetch || require("node-fetch");
 const pdfParse = require("pdf-parse");
 const PDFDocument = require("pdfkit");
 
-// Ensure uploads folder exists
-const uploadDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+// Import models
+const CVFile = require("../models/CVFile");
+const CVScreening = require("../models/CVScreening");
 
 if (!process.env.GEMINI_API_KEY) {
   console.error("ERROR: GEMINI_API_KEY is not found in your .env file!");
@@ -23,31 +22,47 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// ---------------------- Helper: Extract text from CV ---------------------- //
-const extractTextFromFile = async (filePath) => {
-  const ext = path.extname(filePath).toLowerCase();
-
-  if (ext === ".pdf") {
-    const buffer = fs.readFileSync(filePath);
+// ---------------------- Helper: Extract text from Buffer ---------------------- //
+const extractTextFromBuffer = async (buffer, fileType) => {
+  if (fileType === "application/pdf") {
     const data = await pdfParse(buffer);
     return data.text || "";
   }
 
-  if (ext === ".txt") {
-    return fs.readFileSync(filePath, "utf-8");
+  if (fileType === "text/plain") {
+    return buffer.toString("utf-8");
   }
 
-  if (ext === ".doc" || ext === ".docx") {
+  if (
+    fileType === "application/msword" ||
+    fileType ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
     const textract = require("textract");
+    // For DOC/DOCX, we need to save to temp file first
+    const fs = require("fs");
+    const path = require("path");
+    const tempDir = require("os").tmpdir();
+    const tempFilePath = path.join(
+      tempDir,
+      `temp-cv-${Date.now()}${fileType.includes("openxml") ? ".docx" : ".doc"}`
+    );
+
     return new Promise((resolve, reject) => {
-      textract.fromFileWithPath(filePath, (err, text) => {
+      fs.writeFile(tempFilePath, buffer, (err) => {
         if (err) reject(err);
-        else resolve(text || "");
+
+        textract.fromFileWithPath(tempFilePath, (err, text) => {
+          // Clean up temp file
+          fs.unlink(tempFilePath, () => {});
+          if (err) reject(err);
+          else resolve(text || "");
+        });
       });
     });
   }
 
-  throw new Error("Unsupported file type: " + ext);
+  throw new Error("Unsupported file type: " + fileType);
 };
 
 // ---------------------- Helper: Extract email from text ---------------------- //
@@ -57,18 +72,15 @@ const extractEmailFromText = (text) => {
   return emails ? emails[0] : null;
 };
 
-// ---------------------- Analyze Multiple CVs ---------------------- //
+// ---------------------- Analyze Multiple CVs (UPDATED FOR DATABASE) ---------------------- //
 exports.analyzeCV = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const files = req.files;
-    const { requirement, threshold = 45 } = req.body; // Default threshold 45%
-
-    // console.log(
-    //   "Received files:",
-    //   files?.map((f) => f.originalname)
-    // );
-    // console.log("Job requirement:", requirement);
-    // console.log("Eligibility threshold:", threshold);
+    const { requirement, threshold = 45 } = req.body;
+    const userId = req.user.id;
 
     if (!files || files.length === 0 || !requirement) {
       return res
@@ -76,13 +88,46 @@ exports.analyzeCV = async (req, res) => {
         .json({ message: "CV files and requirement are required." });
     }
 
-    const analysisResults = [];
+    // Generate screeningId manually since pre-save middleware doesn't work with transactions
+    const screeningId = `SCR-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
 
+    // Create screening record with manually generated screeningId
+    const screening = new CVScreening({
+      screeningId: screeningId, // Add this manually
+      jobRequirement: requirement,
+      threshold: parseInt(threshold),
+      createdBy: userId,
+      totalAnalyzed: files.length,
+      eligibleCount: 0,
+      results: [],
+    });
+
+    const analysisResults = [];
+    const savedCVFiles = [];
+
+    // Process each file
     for (const file of files) {
       try {
-        const cvText = await extractTextFromFile(file.path);
+        // Save CV file to database
+        const cvFile = new CVFile({
+          fileName: `${Date.now()}-${file.originalname}`,
+          originalName: file.originalname,
+          fileData: file.buffer,
+          fileType: file.mimetype,
+          fileSize: file.size,
+          uploadedBy: userId,
+        });
+
+        const savedFile = await cvFile.save({ session });
+        savedCVFiles.push(savedFile._id);
+
+        // Extract text from buffer
+        const cvText = await extractTextFromBuffer(file.buffer, file.mimetype);
         const extractedEmail = extractEmailFromText(cvText);
 
+        // Analyze with Gemini AI
         const apiKey = process.env.GEMINI_API_KEY;
         const model = "gemini-2.5-flash-lite";
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
@@ -154,16 +199,42 @@ Analysis:`;
               .filter((item) => item.length > 0)
           : [];
 
+        const eligible = matchScore >= threshold;
+
+        // Add to screening results
+        screening.results.push({
+          cvFile: savedFile._id,
+          fileName: file.originalname,
+          matchScore,
+          matchingRequirements,
+          missingRequirements,
+          extractedEmail,
+          eligible,
+          emailSent: false,
+        });
+
         analysisResults.push({
           fileName: file.originalname,
           matchScore,
           matchingRequirements,
           missingRequirements,
           extractedEmail,
-          eligible: matchScore >= threshold,
+          eligible,
+          cvFileId: savedFile._id,
         });
       } catch (fileError) {
         console.error(`Error processing file ${file.originalname}:`, fileError);
+
+        screening.results.push({
+          fileName: file.originalname,
+          error: "Failed to analyze this CV",
+          matchScore: 0,
+          matchingRequirements: [],
+          missingRequirements: [],
+          extractedEmail: null,
+          eligible: false,
+        });
+
         analysisResults.push({
           fileName: file.originalname,
           error: "Failed to analyze this CV",
@@ -176,32 +247,147 @@ Analysis:`;
       }
     }
 
-    // Sort results: eligible first (highest scores), then not eligible (highest to lowest)
+    // Update screening counts
+    screening.eligibleCount = analysisResults.filter(
+      (r) => r.eligible && !r.error
+    ).length;
+    screening.cvFiles = savedCVFiles;
+
+    // Save screening record
+    await screening.save({ session });
+    await session.commitTransaction();
+
+    // Sort results for response
     const sortedResults = analysisResults.sort((a, b) => {
       if (a.eligible && !b.eligible) return -1;
       if (!a.eligible && b.eligible) return 1;
-      return b.matchScore - a.matchScore; // Higher scores first within each category
+      return b.matchScore - a.matchScore;
     });
 
     res.json({
+      screeningId: screening.screeningId,
       results: sortedResults,
       totalAnalyzed: analysisResults.length,
-      eligibleCount: analysisResults.filter((r) => r.eligible).length,
+      eligibleCount: screening.eligibleCount,
       thresholdUsed: parseInt(threshold),
     });
   } catch (err) {
+    await session.abortTransaction();
     console.error("CV Analysis Error:", err);
     res.status(500).json({ message: "Failed to analyze CVs" });
+  } finally {
+    session.endSession();
   }
 };
 
-// ---------------------- Send Registration Link ---------------------- //
-exports.sendRegistrationLink = async (req, res) => {
-  const { email } = req.body;
+// ---------------------- Get CV Screening History ---------------------- //
+exports.getScreeningHistory = async (req, res) => {
+  try {
+    const screenHistory = await CVScreening.find({ createdBy: req.user.id })
+      .sort({ createdAt: -1 })
+      .select(
+        "screeningId jobRequirement threshold totalAnalyzed eligibleCount invitationsSent createdAt"
+      )
+      .lean();
 
-  if (!email) return res.status(400).json({ message: "Email is required" });
+    res.json(screenHistory);
+  } catch (err) {
+    console.error("Get Screening History Error:", err);
+    res.status(500).json({ message: "Failed to fetch screening history" });
+  }
+};
+
+// ---------------------- Get Screening Details ---------------------- //
+exports.getScreeningDetails = async (req, res) => {
+  try {
+    const { screeningId } = req.params;
+
+    const screening = await CVScreening.findOne({
+      screeningId,
+      createdBy: req.user.id,
+    })
+      .populate("results.cvFile", "originalName fileType fileSize")
+      .lean();
+
+    if (!screening) {
+      return res.status(404).json({ message: "Screening not found" });
+    }
+
+    res.json(screening);
+  } catch (err) {
+    console.error("Get Screening Details Error:", err);
+    res.status(500).json({ message: "Failed to fetch screening details" });
+  }
+};
+
+// ---------------------- Download CV File ---------------------- //
+exports.downloadCV = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+
+    const cvFile = await CVFile.findById(fileId);
+
+    if (!cvFile) {
+      return res.status(404).json({ message: "CV file not found" });
+    }
+
+    // Check if user has permission to access this file
+    const screening = await CVScreening.findOne({
+      "results.cvFile": fileId,
+      createdBy: req.user.id,
+    });
+
+    if (!screening && cvFile.uploadedBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // Set appropriate headers
+    res.setHeader("Content-Type", cvFile.fileType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${cvFile.originalName}"`
+    );
+    res.setHeader("Content-Length", cvFile.fileData.length);
+
+    // Send file buffer
+    res.send(cvFile.fileData);
+  } catch (err) {
+    console.error("Download CV Error:", err);
+    res.status(500).json({ message: "Failed to download CV" });
+  }
+};
+
+// ---------------------- Send Registration Link (UPDATED) ---------------------- //
+exports.sendRegistrationLink = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
+    const { email, screeningId, fileName } = req.body;
+    const userId = req.user.id;
+
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    // Update screening record if screeningId provided
+    if (screeningId && fileName) {
+      await CVScreening.updateOne(
+        {
+          screeningId,
+          createdBy: userId,
+          "results.fileName": fileName,
+        },
+        {
+          $set: {
+            "results.$.emailSent": true,
+            "results.$.emailSentTo": email,
+            "results.$.emailSentAt": new Date(),
+          },
+          $inc: { invitationsSent: 1 },
+        },
+        { session }
+      );
+    }
+
     const registrationLink = `http://localhost:5173/register?email=${encodeURIComponent(
       email
     )}`;
@@ -227,31 +413,69 @@ exports.sendRegistrationLink = async (req, res) => {
   `,
     });
 
-    res.json({ message: `Registration link sent to ${email}` });
+    await session.commitTransaction();
+
+    res.json({
+      message: `Registration link sent to ${email}`,
+      screeningUpdated: !!screeningId,
+    });
   } catch (err) {
+    await session.abortTransaction();
     console.error("Send Email Error:", err);
     res.status(500).json({ message: "Failed to send email" });
+  } finally {
+    session.endSession();
   }
 };
 
-// ---------------------- Send Bulk Registration Links ---------------------- //
+// ---------------------- Send Bulk Registration Links (UPDATED) ---------------------- //
 exports.sendBulkRegistrationLinks = async (req, res) => {
-  const { emails } = req.body;
-
-  if (!emails || !Array.isArray(emails) || emails.length === 0) {
-    return res.status(400).json({ message: "Email list is required" });
-  }
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
+    const { emails, screeningId } = req.body;
+    const userId = req.user.id;
+
+    if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({ message: "Email list is required" });
+    }
+
     const sentEmails = [];
     const failedEmails = [];
 
-    for (const email of emails) {
+    for (const emailData of emails) {
       try {
+        const { email, fileName } = emailData;
+
         // Skip empty or invalid emails
         if (!email || !email.trim() || !isValidEmail(email)) {
-          failedEmails.push({ email, reason: "Invalid email address" });
+          failedEmails.push({
+            email,
+            fileName,
+            reason: "Invalid email address",
+          });
           continue;
+        }
+
+        // Update screening record if screeningId provided
+        if (screeningId && fileName) {
+          await CVScreening.updateOne(
+            {
+              screeningId,
+              createdBy: userId,
+              "results.fileName": fileName,
+            },
+            {
+              $set: {
+                "results.$.emailSent": true,
+                "results.$.emailSentTo": email,
+                "results.$.emailSentAt": new Date(),
+              },
+              $inc: { invitationsSent: 1 },
+            },
+            { session }
+          );
         }
 
         const registrationLink = `http://localhost:5173/register?email=${encodeURIComponent(
@@ -279,12 +503,21 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
           `,
         });
 
-        sentEmails.push(email);
+        sentEmails.push({ email, fileName });
       } catch (emailError) {
-        console.error(`Failed to send email to ${email}:`, emailError);
-        failedEmails.push({ email, reason: "Email delivery failed" });
+        console.error(
+          `Failed to send email to ${emailData.email}:`,
+          emailError
+        );
+        failedEmails.push({
+          email: emailData.email,
+          fileName: emailData.fileName,
+          reason: "Email delivery failed",
+        });
       }
     }
+
+    await session.commitTransaction();
 
     res.json({
       message: `Sent ${sentEmails.length} registration links successfully`,
@@ -294,8 +527,11 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
       totalFailed: failedEmails.length,
     });
   } catch (err) {
+    await session.abortTransaction();
     console.error("Bulk Email Send Error:", err);
     res.status(500).json({ message: "Failed to send bulk emails" });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -347,7 +583,8 @@ exports.generateReport = async (req, res) => {
 
     // Function to check if we need new page (without adding footer)
     const checkNewPage = (requiredHeight = 0) => {
-      if (yPosition + requiredHeight > 700) { // Reset to 700 since we're adding footer at the end
+      if (yPosition + requiredHeight > 700) {
+        // Reset to 700 since we're adding footer at the end
         doc.addPage();
         currentPage++;
         yPosition = 50;
@@ -608,8 +845,10 @@ exports.generateReport = async (req, res) => {
     });
 
     // Add footer to ALL pages at the end
-    const totalPages = doc.bufferedPageRange ? doc.bufferedPageRange().count : currentPage;
-    
+    const totalPages = doc.bufferedPageRange
+      ? doc.bufferedPageRange().count
+      : currentPage;
+
     // Simple approach: just add footer to current content position
     if (yPosition < doc.page.height - 40) {
       // Add footer at bottom if there's space
