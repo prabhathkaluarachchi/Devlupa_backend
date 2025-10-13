@@ -104,7 +104,7 @@ exports.requestPasswordReset = async (req, res) => {
     await user.save();
 
     // 4. Create reset link
-    const resetLink = `http://localhost:5173/reset-password/${token}`;
+    const resetLink = `https://devlupa.netlify.app/reset-password/${token}`;
 
     // 5. Simulate email sending (later you can integrate nodemailer or similar)
     // console.log(`🔗 Password reset link for ${user.email}: ${resetLink}`);

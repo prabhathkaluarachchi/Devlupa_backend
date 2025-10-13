@@ -388,7 +388,7 @@ exports.sendRegistrationLink = async (req, res) => {
       );
     }
 
-    const registrationLink = `http://localhost:5173/register?email=${encodeURIComponent(
+    const registrationLink = `https://devlupa.netlify.app/register?email=${encodeURIComponent(
       email
     )}`;
 
@@ -478,7 +478,7 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
           );
         }
 
-        const registrationLink = `http://localhost:5173/register?email=${encodeURIComponent(
+        const registrationLink = `https://devlupa.netlify.app/register?email=${encodeURIComponent(
           email
         )}`;
 
