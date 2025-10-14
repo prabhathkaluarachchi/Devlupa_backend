@@ -669,7 +669,9 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
     console.log("Received bulk email request:", req.body);
 
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
-      return res.status(400).json({ message: "Valid emails array is required." });
+      return res
+        .status(400)
+        .json({ message: "Valid emails array is required." });
     }
 
     const sendResults = [];
@@ -750,22 +752,36 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
             );
             console.log(`✅ Updated screening record for ${fileName}`);
           } catch (updateError) {
-            console.error(`❌ Failed to update screening for ${fileName}:`, updateError);
+            console.error(
+              `❌ Failed to update screening for ${fileName}:`,
+              updateError
+            );
           }
         }
       } catch (sendError) {
         console.error("❌ Failed to send via SendGrid:", emailData, sendError);
-        const email = typeof emailData === "string" ? emailData : (emailData.email || JSON.stringify(emailData));
-        const fileName = typeof emailData === "object" ? (emailData.fileName || "") : "";
+        const email =
+          typeof emailData === "string"
+            ? emailData
+            : emailData.email || JSON.stringify(emailData);
+        const fileName =
+          typeof emailData === "object" ? emailData.fileName || "" : "";
 
-        sendResults.push({ email, fileName, status: "failed", error: sendError.message });
+        sendResults.push({
+          email,
+          fileName,
+          status: "failed",
+          error: sendError.message,
+        });
         failedEmails.push({ email, fileName, reason: sendError.message });
       }
     }
 
     await session.commitTransaction();
 
-    const successfulSends = sendResults.filter(result => result.status === "sent").length;
+    const successfulSends = sendResults.filter(
+      (result) => result.status === "sent"
+    ).length;
 
     res.status(200).json({
       message: `Bulk registration process completed. ${successfulSends}/${emails.length} emails sent successfully.`,
@@ -1122,5 +1138,3 @@ exports.generateReport = async (req, res) => {
     }
   }
 };
-
-
