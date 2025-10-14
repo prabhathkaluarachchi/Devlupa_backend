@@ -22,7 +22,7 @@ const bcrypt = require("bcryptjs");
 // });
 
 // ------------------ 🔹 Resend (Active Email Service) ------------------ //
-import { Resend } from "resend";
+const { Resend } = require("resend");
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ------------------ Common Setup ------------------ //
@@ -116,7 +116,7 @@ exports.requestPasswordReset = async (req, res) => {
     // ------------------ Resend Email Sending ------------------ //
     try {
       await resend.emails.send({
-        from: "DevLupa Support <noreply@yourdomain.com>", // You can use your verified domain or sandbox email
+        from: "DevLupa Support <noreply@yourdomain.com>", // use verified domain or sandbox email
         to: user.email,
         subject: "DevLupa Password Reset",
         html: `
