@@ -446,34 +446,63 @@ exports.sendRegistrationLink = async (req, res) => {
       return res.status(400).json({ message: "Email is required" });
     }
 
-    const token = crypto.randomBytes(20).toString("hex");
-    const registrationLink = `https://devlupa.netlify.app/register/${token}`;
+    // SIMPLE REGISTRATION LINK - NO TOKEN
+    const registrationLink = `https://devlupa.netlify.app/register`;
 
-    console.log("✅ Registration token created for:", email);
+    console.log("✅ Sending registration email to:", email);
 
     // ---------------------- SEND VIA SENDGRID ---------------------- //
     const msg = {
       to: email.trim(),
       from: {
         email: "fmprabhath@gmail.com", // Your verified SendGrid sender
-        name: "DevLupa Support",
+        name: "DevLupa Internship Program",
       },
-      subject: "DevLupa Internship Registration Link",
+      subject: "Registration for DevLupa Internship Program",
+      text: `Congratulations! Your application has been selected for the DevLupa Internship Program. Please complete your registration: https://devlupa.netlify.app/register`,
       html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-          <h2 style="color:#2c3e50;">Hello 👋,</h2>
-          <p>You have been found eligible for the DevLupa internship program!</p>
-          <p>Please click the link below to complete your registration:</p>
-          <p>
-            <a href="${registrationLink}" 
-               style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
-               Complete Registration
-            </a>
-          </p>
-          <p><strong>Link:</strong> ${registrationLink}</p>
-          <p>If you didn't request this, please ignore this message.</p>
-          <br/>
-          <p>Best regards,<br>DevLupa Team</p>
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
+          <div style="background: #f8f9fa; padding: 30px; text-align: center; border-bottom: 3px solid #007bff;">
+            <h1 style="color: #2c3e50; margin: 0; font-size: 24px;">DevLupa Internship Program</h1>
+            <p style="color: #6c757d; margin: 10px 0 0 0; font-size: 16px;">Registration Invitation</p>
+          </div>
+          
+          <div style="padding: 30px;">
+            <h2 style="color: #2c3e50; margin-top: 0;">Congratulations!</h2>
+            
+            <p>Dear Candidate,</p>
+            
+            <p>We are pleased to inform you that your application has been selected for the next stage of our internship program selection process.</p>
+            
+            <p>Based on your qualifications and experience, we believe you would be a great fit for our internship program.</p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${registrationLink}" 
+                 style="background: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; font-size: 16px;">
+                Complete Your Registration
+              </a>
+            </div>
+            
+            <p><strong>Registration Link:</strong><br>
+            <a href="${registrationLink}" style="color: #007bff; word-break: break-all;">${registrationLink}</a></p>
+            
+            <div style="background: #e9ecef; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p style="margin: 0; font-size: 14px;"><strong>Note:</strong> This invitation is valid for the current internship cycle. Please complete your registration at your earliest convenience.</p>
+            </div>
+            
+            <p>If you have any questions, please don't hesitate to contact us.</p>
+            
+            <p>Best regards,<br>
+            <strong>DevLupa Team</strong><br>
+            Internship Program Coordinator</p>
+          </div>
+          
+          <div style="background: #343a40; color: white; padding: 20px; text-align: center; font-size: 12px;">
+            <p style="margin: 0;">© 2024 DevLupa Internship Program. All rights reserved.</p>
+            <p style="margin: 5px 0 0 0;">
+              <a href="https://devlupa.netlify.app" style="color: #17a2b8; text-decoration: none;">Visit Our Website</a>
+            </p>
+          </div>
         </div>
       `,
     };
@@ -639,22 +668,8 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
 
     console.log("Received bulk email request:", req.body);
 
-    if (!emails) {
-      return res.status(400).json({
-        message: "No emails data provided.",
-        receivedData: req.body,
-      });
-    }
-
-    if (!Array.isArray(emails)) {
-      return res.status(400).json({
-        message: "Emails should be an array.",
-        receivedType: typeof emails,
-      });
-    }
-
-    if (emails.length === 0) {
-      return res.status(400).json({ message: "Emails array is empty." });
+    if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({ message: "Valid emails array is required." });
     }
 
     const sendResults = [];
@@ -680,8 +695,8 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
           throw new Error("Invalid or empty email address");
         }
 
-        const token = crypto.randomBytes(20).toString("hex");
-        const registrationLink = `https://devlupa.netlify.app/register/${token}`;
+        // SIMPLE REGISTRATION LINK - NO TOKEN
+        const registrationLink = `https://devlupa.netlify.app/register`;
 
         const msg = {
           to: email.trim(),
@@ -701,6 +716,7 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
                    Complete Registration
                 </a>
               </p>
+              <p><strong>Registration Link:</strong> ${registrationLink}</p>
               <br/>
               <p>Best regards,<br>DevLupa Team</p>
             </div>
@@ -710,11 +726,7 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
         await sgMail.send(msg);
 
         console.log("✅ Email sent via SendGrid:", email);
-        sendResults.push({
-          email,
-          fileName,
-          status: "sent",
-        });
+        sendResults.push({ email, fileName, status: "sent" });
         sentEmails.push({ email, fileName });
 
         // Update screening record if screeningId provided
@@ -738,40 +750,22 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
             );
             console.log(`✅ Updated screening record for ${fileName}`);
           } catch (updateError) {
-            console.error(
-              `❌ Failed to update screening for ${fileName}:`,
-              updateError
-            );
+            console.error(`❌ Failed to update screening for ${fileName}:`, updateError);
           }
         }
       } catch (sendError) {
         console.error("❌ Failed to send via SendGrid:", emailData, sendError);
-        const email =
-          typeof emailData === "string"
-            ? emailData
-            : (emailData.email || JSON.stringify(emailData));
-        const fileName =
-          typeof emailData === "object" ? (emailData.fileName || "") : "";
+        const email = typeof emailData === "string" ? emailData : (emailData.email || JSON.stringify(emailData));
+        const fileName = typeof emailData === "object" ? (emailData.fileName || "") : "";
 
-        sendResults.push({
-          email,
-          fileName,
-          status: "failed",
-          error: sendError.message,
-        });
-        failedEmails.push({
-          email,
-          fileName,
-          reason: sendError.message,
-        });
+        sendResults.push({ email, fileName, status: "failed", error: sendError.message });
+        failedEmails.push({ email, fileName, reason: sendError.message });
       }
     }
 
     await session.commitTransaction();
 
-    const successfulSends = sendResults.filter(
-      (result) => result.status === "sent"
-    ).length;
+    const successfulSends = sendResults.filter(result => result.status === "sent").length;
 
     res.status(200).json({
       message: `Bulk registration process completed. ${successfulSends}/${emails.length} emails sent successfully.`,
