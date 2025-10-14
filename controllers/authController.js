@@ -2,17 +2,30 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const nodemailer = require("nodemailer");
 
-const transporter = nodemailer.createTransport({
-  service: "gmail", // Or use "Outlook", "Yahoo", etc.
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// ------------------ 🔸 Nodemailer (Disabled for Render Free Plan) ------------------ //
+// const nodemailer = require("nodemailer");
+// const transporter = nodemailer.createTransport({
+//   service: "gmail", // Or use "Outlook", "Yahoo", etc.
+//   auth: {
+//     user: process.env.EMAIL_USER,
+//     pass: process.env.EMAIL_PASS,
+//   },
+// });
 
-// List of admin emails
+// transporter.verify((err, success) => {
+//   if (err) {
+//     console.error("❌ Email transporter error:", err);
+//   } else {
+//     console.log("✅ Email transporter ready");
+//   }
+// });
+
+// ------------------ 🔹 Resend (Active Email Service) ------------------ //
+import { Resend } from "resend";
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// ------------------ Common Setup ------------------ //
 const adminEmails = ["fmprabhath@gmail.com", "admin@devlupa.com"];
 
 const generateToken = (user) => {
@@ -21,7 +34,7 @@ const generateToken = (user) => {
   });
 };
 
-// Register user
+// ------------------ Register User ------------------ //
 exports.registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -31,7 +44,7 @@ exports.registerUser = async (req, res) => {
       return res.status(400).json({ message: "Email already exists" });
     }
 
-    // Assign role purely by checking email against adminEmails list
+    // Assign role based on email
     const userRole = adminEmails.includes(email) ? "admin" : "student";
 
     const user = await User.create({
@@ -57,7 +70,7 @@ exports.registerUser = async (req, res) => {
   }
 };
 
-// Login user
+// ------------------ Login User ------------------ //
 exports.loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -85,41 +98,44 @@ exports.loginUser = async (req, res) => {
   }
 };
 
-//reset password
+// ------------------ Request Password Reset ------------------ //
 exports.requestPasswordReset = async (req, res) => {
   const { email } = req.body;
 
   try {
-    // 1. Find user by email
     const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // 2. Generate secure token
     const token = crypto.randomBytes(32).toString("hex");
-
-    // 3. Set token + expiration (1 hour)
     user.resetPasswordToken = token;
     user.resetPasswordExpires = Date.now() + 60 * 60 * 1000; // 1 hour
-
     await user.save();
 
-    // 4. Create reset link
     const resetLink = `https://devlupa.netlify.app/reset-password/${token}`;
 
-    // 5. Simulate email sending (later you can integrate nodemailer or similar)
-    // console.log(`🔗 Password reset link for ${user.email}: ${resetLink}`);
-    await transporter.sendMail({
-      from: `"DevLupa Support" <${process.env.EMAIL_USER}>`,
-      to: user.email,
-      subject: "DevLupa Password Reset",
-      html: `
-    <p>Hello ${user.name || "User"},</p>
-    <p>You requested a password reset. Click the link below to reset your password:</p>
-    <a href="${resetLink}">${resetLink}</a>
-    <p>If you didn’t request this, you can safely ignore this email.</p>
-    <p>– DevLupa Team</p>
-  `,
-    });
+    // ------------------ Resend Email Sending ------------------ //
+    try {
+      await resend.emails.send({
+        from: "DevLupa Support <noreply@yourdomain.com>", // You can use your verified domain or sandbox email
+        to: user.email,
+        subject: "DevLupa Password Reset",
+        html: `
+          <p>Hello ${user.name || "User"},</p>
+          <p>You requested a password reset. Click the link below to reset your password:</p>
+          <a href="${resetLink}">${resetLink}</a>
+          <p>If you didn’t request this, you can safely ignore this email.</p>
+          <p>– DevLupa Team</p>
+        `,
+      });
+
+      console.log("✅ Password reset email sent successfully to:", user.email);
+    } catch (emailError) {
+      console.error("❌ Error sending email via Resend:", emailError);
+      return res.status(500).json({
+        message:
+          "Error sending email. Please check Resend setup or try again later.",
+      });
+    }
 
     res.json({ message: "Password reset link has been sent to your email." });
   } catch (err) {
@@ -128,6 +144,7 @@ exports.requestPasswordReset = async (req, res) => {
   }
 };
 
+// ------------------ Reset Password ------------------ //
 exports.resetPassword = async (req, res) => {
   const { token } = req.params;
   const { newPassword } = req.body;
@@ -142,10 +159,9 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ message: "Invalid or expired token" });
     }
 
-    user.password = newPassword; // ✅ Let pre('save') handle hashing
+    user.password = newPassword; // Let pre('save') handle hashing
     user.resetPasswordToken = null;
     user.resetPasswordExpires = null;
-
     await user.save();
 
     res.json({ message: "Password has been reset successfully" });
@@ -154,11 +170,3 @@ exports.resetPassword = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
-transporter.verify((err, success) => {
-  if (err) {
-    console.error("❌ Email transporter error:", err);
-  } else {
-    console.log("✅ Email transporter ready");
-  }
-});
