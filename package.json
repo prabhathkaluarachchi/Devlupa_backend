@@ -24,6 +24,7 @@
     "openai": "^6.3.0",
     "pdf-parse": "^2.2.2",
     "pdfkit": "^0.17.2",
+    "resend": "^6.1.2",
     "textract": "^2.5.0"
   },
   "devDependencies": {
