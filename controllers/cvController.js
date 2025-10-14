@@ -1,9 +1,13 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
-const nodemailer = require("nodemailer");
+// const nodemailer = require("nodemailer");
 const fetch = global.fetch || require("node-fetch");
 const pdfParse = require("pdf-parse");
 const PDFDocument = require("pdfkit");
+const crypto = require("crypto");
+const { Resend } = require("resend");
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 
 // Import models
 const CVFile = require("../models/CVFile");
@@ -14,13 +18,13 @@ if (!process.env.GEMINI_API_KEY) {
 }
 
 // ---------------------- Nodemailer Setup ---------------------- //
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// const transporter = nodemailer.createTransport({
+//   service: "gmail",
+//   auth: {
+//     user: process.env.EMAIL_USER,
+//     pass: process.env.EMAIL_PASS,
+//   },
+// });
 
 // ---------------------- Helper: Extract text from Buffer ---------------------- //
 const extractTextFromBuffer = async (buffer, fileType) => {
@@ -358,139 +362,250 @@ exports.downloadCV = async (req, res) => {
 };
 
 // ---------------------- Send Registration Link (UPDATED) ---------------------- //
+// exports.sendRegistrationLink = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+
+//   try {
+//     const { email, screeningId, fileName } = req.body;
+//     const userId = req.user.id;
+
+//     if (!email) return res.status(400).json({ message: "Email is required" });
+
+//     // Update screening record if screeningId provided
+//     if (screeningId && fileName) {
+//       await CVScreening.updateOne(
+//         {
+//           screeningId,
+//           createdBy: userId,
+//           "results.fileName": fileName,
+//         },
+//         {
+//           $set: {
+//             "results.$.emailSent": true,
+//             "results.$.emailSentTo": email,
+//             "results.$.emailSentAt": new Date(),
+//           },
+//           $inc: { invitationsSent: 1 },
+//         },
+//         { session }
+//       );
+//     }
+
+//     const registrationLink = `https://devlupa.netlify.app/register?email=${encodeURIComponent(
+//       email
+//     )}`;
+
+//     await transporter.sendMail({
+//       from: `"DevLupa Support" <${process.env.EMAIL_USER}>`,
+//       to: email,
+//       subject: "DevLupa Internship Registration Link",
+//       html: `
+//     <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+//       <h2 style="color: #2c3e50;">Hello 👋,</h2>
+//       <p>You have been found eligible for the internship!</p>
+//       <p>Click the link below to register:</p>
+//       <p>
+//         <a href="${registrationLink}" 
+//            style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
+//            Register Now
+//         </a>
+//       </p>
+//       <br/>
+//       <p>– DevLupa Team</p>
+//     </div>
+//   `,
+//     });
+
+//     await session.commitTransaction();
+
+//     res.json({
+//       message: `Registration link sent to ${email}`,
+//       screeningUpdated: !!screeningId,
+//     });
+//   } catch (err) {
+//     await session.abortTransaction();
+//     console.error("Send Email Error:", err);
+//     res.status(500).json({ message: "Failed to send email" });
+//   } finally {
+//     session.endSession();
+//   }
+// };
+
+// ---------------------- SEND SINGLE REGISTRATION LINK ---------------------- //
 exports.sendRegistrationLink = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const { email } = req.body;
 
   try {
-    const { email, screeningId, fileName } = req.body;
-    const userId = req.user.id;
+    const token = crypto.randomBytes(20).toString("hex");
+    const registrationLink = `https://devlupa.netlify.app/register/${token}`;
 
-    if (!email) return res.status(400).json({ message: "Email is required" });
+    // Save the token or handle your registration logic here
+    console.log("✅ Registration token created for:", email);
 
-    // Update screening record if screeningId provided
-    if (screeningId && fileName) {
-      await CVScreening.updateOne(
-        {
-          screeningId,
-          createdBy: userId,
-          "results.fileName": fileName,
-        },
-        {
-          $set: {
-            "results.$.emailSent": true,
-            "results.$.emailSentTo": email,
-            "results.$.emailSentAt": new Date(),
-          },
-          $inc: { invitationsSent: 1 },
-        },
-        { session }
-      );
-    }
-
-    const registrationLink = `https://devlupa.netlify.app/register?email=${encodeURIComponent(
-      email
-    )}`;
-
-    await transporter.sendMail({
-      from: `"DevLupa Support" <${process.env.EMAIL_USER}>`,
+    // ---------------------- SEND VIA RESEND ---------------------- //
+    await resend.emails.send({
+      from: "DevLupa Support <onboarding@resend.dev>", // works without domain verification
       to: email,
       subject: "DevLupa Internship Registration Link",
       html: `
-    <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-      <h2 style="color: #2c3e50;">Hello 👋,</h2>
-      <p>You have been found eligible for the internship!</p>
-      <p>Click the link below to register:</p>
-      <p>
-        <a href="${registrationLink}" 
-           style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
-           Register Now
-        </a>
-      </p>
-      <br/>
-      <p>– DevLupa Team</p>
-    </div>
-  `,
+        <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+          <h2 style="color:#2c3e50;">Hello 👋,</h2>
+          <p>You have been found eligible for the DevLupa internship!</p>
+          <p>Please click the link below to complete your registration:</p>
+          <p>
+            <a href="${registrationLink}" 
+               style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
+               Register Now
+            </a>
+          </p>
+          <p>If you didn’t request this, please ignore this message.</p>
+          <br/>
+          <p>– DevLupa Team</p>
+        </div>
+      `,
     });
 
-    await session.commitTransaction();
-
-    res.json({
-      message: `Registration link sent to ${email}`,
-      screeningUpdated: !!screeningId,
-    });
-  } catch (err) {
-    await session.abortTransaction();
-    console.error("Send Email Error:", err);
-    res.status(500).json({ message: "Failed to send email" });
-  } finally {
-    session.endSession();
+    console.log("📨 Email sent successfully to:", email);
+    res.status(200).json({ message: "Registration email sent successfully." });
+  } catch (error) {
+    console.error("❌ Error sending registration email:", error);
+    res.status(500).json({ message: "Error sending registration link.", error: error.message });
   }
 };
 
 // ---------------------- Send Bulk Registration Links (UPDATED) ---------------------- //
+// exports.sendBulkRegistrationLinks = async (req, res) => {
+//   const session = await mongoose.startSession();
+//   session.startTransaction();
+
+//   try {
+//     const { emails, screeningId } = req.body;
+//     const userId = req.user.id;
+
+//     if (!emails || !Array.isArray(emails) || emails.length === 0) {
+//       return res.status(400).json({ message: "Email list is required" });
+//     }
+
+//     const sentEmails = [];
+//     const failedEmails = [];
+
+//     for (const emailData of emails) {
+//       try {
+//         const { email, fileName } = emailData;
+
+//         // Skip empty or invalid emails
+//         if (!email || !email.trim() || !isValidEmail(email)) {
+//           failedEmails.push({
+//             email,
+//             fileName,
+//             reason: "Invalid email address",
+//           });
+//           continue;
+//         }
+
+//         // Update screening record if screeningId provided
+//         if (screeningId && fileName) {
+//           await CVScreening.updateOne(
+//             {
+//               screeningId,
+//               createdBy: userId,
+//               "results.fileName": fileName,
+//             },
+//             {
+//               $set: {
+//                 "results.$.emailSent": true,
+//                 "results.$.emailSentTo": email,
+//                 "results.$.emailSentAt": new Date(),
+//               },
+//               $inc: { invitationsSent: 1 },
+//             },
+//             { session }
+//           );
+//         }
+
+//         const registrationLink = `https://devlupa.netlify.app/register?email=${encodeURIComponent(
+//           email
+//         )}`;
+
+//         await transporter.sendMail({
+//           from: `"DevLupa Support" <${process.env.EMAIL_USER}>`,
+//           to: email,
+//           subject: "DevLupa Internship Registration Link",
+//           html: `
+//             <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+//               <h2 style="color: #2c3e50;">Hello 👋,</h2>
+//               <p>You have been found eligible for the internship!</p>
+//               <p>Click the link below to register:</p>
+//               <p>
+//                 <a href="${registrationLink}" 
+//                    style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
+//                    Register Now
+//                 </a>
+//               </p>
+//               <br/>
+//               <p>– DevLupa Team</p>
+//             </div>
+//           `,
+//         });
+
+//         sentEmails.push({ email, fileName });
+//       } catch (emailError) {
+//         console.error(
+//           `Failed to send email to ${emailData.email}:`,
+//           emailError
+//         );
+//         failedEmails.push({
+//           email: emailData.email,
+//           fileName: emailData.fileName,
+//           reason: "Email delivery failed",
+//         });
+//       }
+//     }
+
+//     await session.commitTransaction();
+
+//     res.json({
+//       message: `Sent ${sentEmails.length} registration links successfully`,
+//       sentEmails,
+//       failedEmails,
+//       totalSent: sentEmails.length,
+//       totalFailed: failedEmails.length,
+//     });
+//   } catch (err) {
+//     await session.abortTransaction();
+//     console.error("Bulk Email Send Error:", err);
+//     res.status(500).json({ message: "Failed to send bulk emails" });
+//   } finally {
+//     session.endSession();
+//   }
+// };
+
+// ---------------------- SEND BULK REGISTRATION LINKS ---------------------- //
 exports.sendBulkRegistrationLinks = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const { emails } = req.body;
 
   try {
-    const { emails, screeningId } = req.body;
-    const userId = req.user.id;
-
-    if (!emails || !Array.isArray(emails) || emails.length === 0) {
-      return res.status(400).json({ message: "Email list is required" });
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({ message: "No emails provided." });
     }
 
-    const sentEmails = [];
-    const failedEmails = [];
+    const sendResults = [];
 
-    for (const emailData of emails) {
+    for (const email of emails) {
+      const token = crypto.randomBytes(20).toString("hex");
+      const registrationLink = `https://devlupa.netlify.app/register/${token}`;
+
       try {
-        const { email, fileName } = emailData;
-
-        // Skip empty or invalid emails
-        if (!email || !email.trim() || !isValidEmail(email)) {
-          failedEmails.push({
-            email,
-            fileName,
-            reason: "Invalid email address",
-          });
-          continue;
-        }
-
-        // Update screening record if screeningId provided
-        if (screeningId && fileName) {
-          await CVScreening.updateOne(
-            {
-              screeningId,
-              createdBy: userId,
-              "results.fileName": fileName,
-            },
-            {
-              $set: {
-                "results.$.emailSent": true,
-                "results.$.emailSentTo": email,
-                "results.$.emailSentAt": new Date(),
-              },
-              $inc: { invitationsSent: 1 },
-            },
-            { session }
-          );
-        }
-
-        const registrationLink = `https://devlupa.netlify.app/register?email=${encodeURIComponent(
-          email
-        )}`;
-
-        await transporter.sendMail({
-          from: `"DevLupa Support" <${process.env.EMAIL_USER}>`,
+        await resend.emails.send({
+          from: "DevLupa Support <onboarding@resend.dev>",
           to: email,
           subject: "DevLupa Internship Registration Link",
           html: `
             <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-              <h2 style="color: #2c3e50;">Hello 👋,</h2>
-              <p>You have been found eligible for the internship!</p>
-              <p>Click the link below to register:</p>
+              <h2 style="color:#2c3e50;">Hello 👋,</h2>
+              <p>You have been found eligible for the DevLupa internship!</p>
+              <p>Please click the link below to complete your registration:</p>
               <p>
                 <a href="${registrationLink}" 
                    style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
@@ -503,35 +618,21 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
           `,
         });
 
-        sentEmails.push({ email, fileName });
-      } catch (emailError) {
-        console.error(
-          `Failed to send email to ${emailData.email}:`,
-          emailError
-        );
-        failedEmails.push({
-          email: emailData.email,
-          fileName: emailData.fileName,
-          reason: "Email delivery failed",
-        });
+        console.log("✅ Email sent:", email);
+        sendResults.push({ email, status: "sent" });
+      } catch (sendError) {
+        console.error("❌ Failed to send to:", email, sendError);
+        sendResults.push({ email, status: "failed", error: sendError.message });
       }
     }
 
-    await session.commitTransaction();
-
-    res.json({
-      message: `Sent ${sentEmails.length} registration links successfully`,
-      sentEmails,
-      failedEmails,
-      totalSent: sentEmails.length,
-      totalFailed: failedEmails.length,
+    res.status(200).json({
+      message: "Bulk registration process completed.",
+      results: sendResults,
     });
-  } catch (err) {
-    await session.abortTransaction();
-    console.error("Bulk Email Send Error:", err);
-    res.status(500).json({ message: "Failed to send bulk emails" });
-  } finally {
-    session.endSession();
+  } catch (error) {
+    console.error("❌ Bulk registration error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 

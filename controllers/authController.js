@@ -116,7 +116,7 @@ exports.requestPasswordReset = async (req, res) => {
     // ------------------ Resend Email Sending ------------------ //
     try {
       await resend.emails.send({
-        from: "onboarding@resend.dev", // use verified domain or sandbox email
+        from: "DevLupa Support <onboarding@resend.dev>", // use verified domain or sandbox email        
         to: user.email,
         subject: "DevLupa Password Reset",
         html: `
