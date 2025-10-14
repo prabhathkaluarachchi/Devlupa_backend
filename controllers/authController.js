@@ -21,9 +21,9 @@ const bcrypt = require("bcryptjs");
 //   }
 // });
 
-// ------------------ 🔹 Resend (Active Email Service) ------------------ //
-const { Resend } = require("resend");
-const resend = new Resend(process.env.RESEND_API_KEY);
+// ------------------ 🔹 SendGrid (Active Email Service) ------------------ //
+const sgMail = require('@sendgrid/mail');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // ------------------ Common Setup ------------------ //
 const adminEmails = ["fmprabhath@gmail.com", "admin@devlupa.com"];
@@ -113,27 +113,44 @@ exports.requestPasswordReset = async (req, res) => {
 
     const resetLink = `https://devlupa.netlify.app/reset-password/${token}`;
 
-    // ------------------ Resend Email Sending ------------------ //
+    // ------------------ SendGrid Email Sending ------------------ //
     try {
-      await resend.emails.send({
-        from: "DevLupa Support <onboarding@resend.dev>", // use verified domain or sandbox email        
+      const msg = {
         to: user.email,
-        subject: "DevLupa Password Reset",
+        from: {
+          email: 'fmprabhath@gmail.com', // Your verified SendGrid sender
+          name: 'DevLupa Support'
+        },
+        subject: 'DevLupa Password Reset',
         html: `
-          <p>Hello ${user.name || "User"},</p>
-          <p>You requested a password reset. Click the link below to reset your password:</p>
-          <a href="${resetLink}">${resetLink}</a>
-          <p>If you didn’t request this, you can safely ignore this email.</p>
-          <p>– DevLupa Team</p>
+          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+            <h2 style="color: #2c3e50;">Password Reset Request</h2>
+            <p>Hello ${user.name || "User"},</p>
+            <p>You requested a password reset for your DevLupa account.</p>
+            <p>Click the link below to reset your password:</p>
+            <p>
+              <a href="${resetLink}" 
+                 style="background-color: #007bff; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                 Reset Password
+              </a>
+            </p>
+            <p><strong>Reset Link:</strong> ${resetLink}</p>
+            <p>This link will expire in 1 hour.</p>
+            <p>If you didn't request this, please ignore this email.</p>
+            <br/>
+            <p>Best regards,<br>DevLupa Team</p>
+          </div>
         `,
-      });
+      };
 
+      await sgMail.send(msg);
+      
       console.log("✅ Password reset email sent successfully to:", user.email);
     } catch (emailError) {
-      console.error("❌ Error sending email via Resend:", emailError);
+      console.error("❌ Error sending email via SendGrid:", emailError.response?.body || emailError);
       return res.status(500).json({
-        message:
-          "Error sending email. Please check Resend setup or try again later.",
+        message: "Error sending email. Please try again later.",
+        error: emailError.response?.body || emailError.message,
       });
     }
 

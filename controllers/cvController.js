@@ -5,8 +5,8 @@ const fetch = global.fetch || require("node-fetch");
 const pdfParse = require("pdf-parse");
 const PDFDocument = require("pdfkit");
 const crypto = require("crypto");
-const { Resend } = require("resend");
-const resend = new Resend(process.env.RESEND_API_KEY);
+const sgMail = require("@sendgrid/mail");
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // Import models
 const CVFile = require("../models/CVFile");
@@ -73,6 +73,12 @@ const extractEmailFromText = (text) => {
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
   const emails = text.match(emailRegex);
   return emails ? emails[0] : null;
+};
+
+// ---------------------- Helper: Validate email ---------------------- //
+const isValidEmail = (email) => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
 };
 
 // ---------------------- Analyze Multiple CVs (UPDATED FOR DATABASE) ---------------------- //
@@ -433,45 +439,84 @@ exports.downloadCV = async (req, res) => {
 
 // ---------------------- SEND SINGLE REGISTRATION LINK ---------------------- //
 exports.sendRegistrationLink = async (req, res) => {
-  const { email } = req.body;
+  const { email, screeningId, fileName } = req.body;
 
   try {
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
     const token = crypto.randomBytes(20).toString("hex");
     const registrationLink = `https://devlupa.netlify.app/register/${token}`;
 
-    // Save the token or handle your registration logic here
     console.log("✅ Registration token created for:", email);
 
-    // ---------------------- SEND VIA RESEND ---------------------- //
-    await resend.emails.send({
-      from: "DevLupa Support <onboarding@resend.dev>", // works without domain verification
-      to: email,
+    // ---------------------- SEND VIA SENDGRID ---------------------- //
+    const msg = {
+      to: email.trim(),
+      from: {
+        email: "fmprabhath@gmail.com", // Your verified SendGrid sender
+        name: "DevLupa Support",
+      },
       subject: "DevLupa Internship Registration Link",
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.5;">
           <h2 style="color:#2c3e50;">Hello 👋,</h2>
-          <p>You have been found eligible for the DevLupa internship!</p>
+          <p>You have been found eligible for the DevLupa internship program!</p>
           <p>Please click the link below to complete your registration:</p>
           <p>
             <a href="${registrationLink}" 
                style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
-               Register Now
+               Complete Registration
             </a>
           </p>
-          <p>If you didn’t request this, please ignore this message.</p>
+          <p><strong>Link:</strong> ${registrationLink}</p>
+          <p>If you didn't request this, please ignore this message.</p>
           <br/>
-          <p>– DevLupa Team</p>
+          <p>Best regards,<br>DevLupa Team</p>
         </div>
       `,
-    });
+    };
 
-    console.log("📨 Email sent successfully to:", email);
-    res.status(200).json({ message: "Registration email sent successfully." });
+    await sgMail.send(msg);
+
+    console.log("✅ Email sent successfully to:", email);
+
+    // Update screening record if screeningId provided
+    if (screeningId && fileName) {
+      try {
+        await CVScreening.updateOne(
+          {
+            screeningId,
+            "results.fileName": fileName,
+          },
+          {
+            $set: {
+              "results.$.emailSent": true,
+              "results.$.emailSentTo": email,
+              "results.$.emailSentAt": new Date(),
+            },
+            $inc: { invitationsSent: 1 },
+          }
+        );
+        console.log("✅ Screening record updated for:", fileName);
+      } catch (updateError) {
+        console.error("❌ Failed to update screening:", updateError);
+      }
+    }
+
+    res.status(200).json({
+      message: "Registration email sent successfully.",
+      screeningUpdated: !!screeningId,
+    });
   } catch (error) {
-    console.error("❌ Error sending registration email:", error);
+    console.error(
+      "❌ Error sending registration email:",
+      error.response?.body || error
+    );
     res.status(500).json({
       message: "Error sending registration link.",
-      error: error.message,
+      error: error.response?.body || error.message,
     });
   }
 };
@@ -585,10 +630,13 @@ exports.sendRegistrationLink = async (req, res) => {
 
 // ---------------------- SEND BULK REGISTRATION LINKS ---------------------- //
 exports.sendBulkRegistrationLinks = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { emails, screeningId } = req.body;
+    const userId = req.user.id;
 
-    // Add proper validation and logging
     console.log("Received bulk email request:", req.body);
 
     if (!emails) {
@@ -610,12 +658,11 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
     }
 
     const sendResults = [];
-    const sentEmails = []; // For response compatibility
-    const failedEmails = []; // For response compatibility
+    const sentEmails = [];
+    const failedEmails = [];
 
     for (const emailData of emails) {
       try {
-        // Handle both string emails and object with email property
         let email, fileName;
 
         if (typeof emailData === "string") {
@@ -625,61 +672,44 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
           email = emailData.email;
           fileName = emailData.fileName || "";
         } else {
-          sendResults.push({
-            email: JSON.stringify(emailData),
-            status: "failed",
-            error: "Invalid email data format",
-          });
-          failedEmails.push({
-            email: JSON.stringify(emailData),
-            fileName: "",
-            reason: "Invalid email data format",
-          });
-          continue;
+          throw new Error("Invalid email data format");
         }
 
-        if (!email || !email.trim()) {
-          sendResults.push({
-            email: emailData,
-            status: "failed",
-            error: "Invalid or empty email",
-          });
-          failedEmails.push({
-            email:
-              typeof emailData === "string"
-                ? emailData
-                : JSON.stringify(emailData),
-            fileName: fileName,
-            reason: "Invalid or empty email",
-          });
-          continue;
+        // Validate email format
+        if (!email || !email.trim() || !isValidEmail(email)) {
+          throw new Error("Invalid or empty email address");
         }
 
         const token = crypto.randomBytes(20).toString("hex");
         const registrationLink = `https://devlupa.netlify.app/register/${token}`;
 
-        await resend.emails.send({
-          from: "DevLupa Support <onboarding@resend.dev>",
+        const msg = {
           to: email.trim(),
+          from: {
+            email: "fmprabhath@gmail.com",
+            name: "DevLupa Support",
+          },
           subject: "DevLupa Internship Registration Link",
           html: `
             <div style="font-family: Arial, sans-serif; line-height: 1.5;">
               <h2 style="color:#2c3e50;">Hello 👋,</h2>
-              <p>You have been found eligible for the DevLupa internship!</p>
+              <p>You have been found eligible for the DevLupa internship program!</p>
               <p>Please click the link below to complete your registration:</p>
               <p>
                 <a href="${registrationLink}" 
                    style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
-                   Register Now
+                   Complete Registration
                 </a>
               </p>
               <br/>
-              <p>– DevLupa Team</p>
+              <p>Best regards,<br>DevLupa Team</p>
             </div>
           `,
-        });
+        };
 
-        console.log("✅ Email sent:", email);
+        await sgMail.send(msg);
+
+        console.log("✅ Email sent via SendGrid:", email);
         sendResults.push({
           email,
           fileName,
@@ -693,6 +723,7 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
             await CVScreening.updateOne(
               {
                 screeningId,
+                createdBy: userId,
                 "results.fileName": fileName,
               },
               {
@@ -702,7 +733,8 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
                   "results.$.emailSentAt": new Date(),
                 },
                 $inc: { invitationsSent: 1 },
-              }
+              },
+              { session }
             );
             console.log(`✅ Updated screening record for ${fileName}`);
           } catch (updateError) {
@@ -713,13 +745,13 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
           }
         }
       } catch (sendError) {
-        console.error("❌ Failed to send to:", emailData, sendError);
+        console.error("❌ Failed to send via SendGrid:", emailData, sendError);
         const email =
           typeof emailData === "string"
             ? emailData
-            : emailData.email || JSON.stringify(emailData);
+            : (emailData.email || JSON.stringify(emailData));
         const fileName =
-          typeof emailData === "object" ? emailData.fileName || "" : "";
+          typeof emailData === "object" ? (emailData.fileName || "") : "";
 
         sendResults.push({
           email,
@@ -730,10 +762,12 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
         failedEmails.push({
           email,
           fileName,
-          reason: "Email delivery failed",
+          reason: sendError.message,
         });
       }
     }
+
+    await session.commitTransaction();
 
     const successfulSends = sendResults.filter(
       (result) => result.status === "sent"
@@ -748,11 +782,14 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
       totalFailed: failedEmails.length,
     });
   } catch (error) {
+    await session.abortTransaction();
     console.error("❌ Bulk registration error:", error);
     res.status(500).json({
       message: "Server error during bulk email sending",
       error: error.message,
     });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -1092,8 +1129,4 @@ exports.generateReport = async (req, res) => {
   }
 };
 
-// Helper function to validate email
-function isValidEmail(email) {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-}
+
