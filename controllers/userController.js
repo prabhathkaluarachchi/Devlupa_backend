@@ -163,9 +163,9 @@ const enrollInCourse = async (req, res) => {
 // user manage 8/28 added
 const getAllUsersWithProgress = async (req, res) => {
   try {
-    // Fetch only students
+    // Fetch only students WITH createdAt field
     const users = await User.find({ role: "student" }).select(
-      "_id name email role"
+      "_id name email role createdAt" // Added createdAt here
     );
 
     const usersWithProgress = await Promise.all(
@@ -191,6 +191,7 @@ const getAllUsersWithProgress = async (req, res) => {
           _id: user._id,
           name: user.name,
           email: user.email,
+          createdAt: user.createdAt, // Include createdAt in response
           overallPercentage,
         };
       })
