@@ -93,5 +93,13 @@ router.get(
   cvController.downloadCV
 );
 
+// Get CVs without email for a specific screening
+router.get(
+  "/cvs-without-email/:screeningId",
+  verifyToken,
+  isAdmin,
+  cvController.getCVsWithoutEmail
+);
+
 
 module.exports = router;

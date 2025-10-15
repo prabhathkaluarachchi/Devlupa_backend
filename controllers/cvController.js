@@ -329,6 +329,65 @@ exports.getScreeningDetails = async (req, res) => {
   }
 };
 
+// ---------------------- Get CVs Without Email ---------------------- //
+exports.getCVsWithoutEmail = async (req, res) => {
+  try {
+    const { screeningId } = req.params;
+    const userId = req.user.id;
+
+    // Find the screening by ID
+    const screening = await CVScreening.findOne({
+      screeningId,
+      createdBy: userId,
+    });
+
+    if (!screening) {
+      return res.status(404).json({
+        success: false,
+        message: "Screening not found",
+      });
+    }
+
+    // Filter CVs that don't have valid email addresses
+    const cvsWithoutEmail = screening.results
+      .filter((result) => {
+        // Check if email is missing, empty, or invalid
+        const email = result.extractedEmail;
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        return !email || email.trim() === "" || !emailRegex.test(email);
+      })
+      .map((result) => ({
+        fileName: result.fileName,
+        screeningId: screening.screeningId,
+        matchScore: result.matchScore,
+        eligible: result.eligible,
+        extractedEmail: result.extractedEmail || null,
+        emailSent: result.emailSent || false,
+      }));
+
+    res.json({
+      success: true,
+      cvs: cvsWithoutEmail,
+      total: cvsWithoutEmail.length,
+      screeningInfo: {
+        jobRequirement: screening.jobRequirement,
+        threshold: screening.threshold,
+        totalAnalyzed: screening.totalAnalyzed,
+        eligibleCount: screening.eligibleCount,
+        invitationsSent: screening.invitationsSent,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching CVs without email:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch CVs without email",
+      error: error.message,
+    });
+  }
+};
+
 // ---------------------- Download CV File ---------------------- //
 exports.downloadCV = async (req, res) => {
   try {

@@ -11,6 +11,7 @@ const userRoutes = require('./routes/userRoutes'); // Student routes
 const adminRoutes = require('./routes/adminRoutes'); // Admin + CV filter
 const quizRoutes = require('./routes/quizRoutes');
 const assignmentRoutes = require('./routes/assignmentRoutes');
+const certificateRoutes = require('./routes/certificateRoutes');
 
 // ------------------------ CONNECT TO DB ------------------------ //
 connectDB();
@@ -45,6 +46,10 @@ app.use('/api/quizzes', quizRoutes);
 
 // Assignment routes
 app.use('/api/assignments', assignmentRoutes);
+
+// Add this with your other route uses
+app.use('/api/admin', certificateRoutes);
+
 
 // ------------------------ ROOT ROUTE ------------------------ //
 app.get('/', (req, res) => {
