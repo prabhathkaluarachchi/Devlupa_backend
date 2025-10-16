@@ -295,11 +295,18 @@ exports.getScreeningHistory = async (req, res) => {
     const screenHistory = await CVScreening.find({ createdBy: req.user.id })
       .sort({ createdAt: -1 })
       .select(
-        "screeningId jobRequirement threshold totalAnalyzed eligibleCount invitationsSent createdAt"
+        "screeningId jobRequirement threshold totalAnalyzed eligibleCount invitationsSent manualEmailsSent createdAt"
       )
       .lean();
 
-    res.json(screenHistory);
+    // Calculate total sent for each screening
+    const screenHistoryWithTotals = screenHistory.map((screening) => ({
+      ...screening,
+      totalSent:
+        (screening.invitationsSent || 0) + (screening.manualEmailsSent || 0),
+    }));
+
+    res.json(screenHistoryWithTotals);
   } catch (err) {
     console.error("Get Screening History Error:", err);
     res.status(500).json({ message: "Failed to fetch screening history" });
@@ -321,6 +328,42 @@ exports.getScreeningDetails = async (req, res) => {
     if (!screening) {
       return res.status(404).json({ message: "Screening not found" });
     }
+
+    // Calculate counts for frontend - FIXED LOGIC
+    const eligibleResults = screening.results.filter(
+      (r) => r.eligible && !r.error
+    );
+
+    const eligibleWithEmail = eligibleResults.filter(
+      (r) => r.extractedEmail && r.extractedEmail.trim() !== "" && !r.emailSent
+    ).length;
+
+    const eligibleWithoutEmail = eligibleResults.filter(
+      (r) =>
+        (!r.extractedEmail || r.extractedEmail.trim() === "") && !r.emailSent
+    ).length;
+
+    const eligibleEmailSent = eligibleResults.filter((r) => r.emailSent).length;
+
+    // Separate counts for extracted vs manual emails
+    const extractedEmailsSent = eligibleResults.filter(
+      (r) => r.emailSent && r.emailType === "extracted"
+    ).length;
+
+    const manualEmailsSent = eligibleResults.filter(
+      (r) => r.emailSent && r.emailType === "manual"
+    ).length;
+
+    // Add calculated counts to response
+    screening.calculatedCounts = {
+      eligibleWithEmail,
+      eligibleWithoutEmail,
+      eligibleEmailSent,
+      extractedEmailsSent,
+      manualEmailsSent,
+      totalInvitationsSent: extractedEmailsSent + manualEmailsSent,
+      totalEligible: eligibleResults.length,
+    };
 
     res.json(screening);
   } catch (err) {
@@ -348,14 +391,18 @@ exports.getCVsWithoutEmail = async (req, res) => {
       });
     }
 
-    // Filter CVs that don't have valid email addresses
+    // Filter CVs that don't have valid email addresses AND haven't had emails sent yet
     const cvsWithoutEmail = screening.results
       .filter((result) => {
-        // Check if email is missing, empty, or invalid
-        const email = result.extractedEmail;
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-        return !email || email.trim() === "" || !emailRegex.test(email);
+        // Only show eligible CVs without emails that haven't been sent yet
+        return (
+          result.eligible &&
+          !result.error &&
+          (!result.extractedEmail ||
+            result.extractedEmail.trim() === "" ||
+            !isValidEmail(result.extractedEmail)) &&
+          !result.emailSent
+        );
       })
       .map((result) => ({
         fileName: result.fileName,
@@ -364,6 +411,8 @@ exports.getCVsWithoutEmail = async (req, res) => {
         eligible: result.eligible,
         extractedEmail: result.extractedEmail || null,
         emailSent: result.emailSent || false,
+        emailSentTo: result.emailSentTo || null,
+        emailSentAt: result.emailSentAt || null,
       }));
 
     res.json({
@@ -375,7 +424,10 @@ exports.getCVsWithoutEmail = async (req, res) => {
         threshold: screening.threshold,
         totalAnalyzed: screening.totalAnalyzed,
         eligibleCount: screening.eligibleCount,
-        invitationsSent: screening.invitationsSent,
+        invitationsSent: screening.invitationsSent || 0,
+        manualEmailsSent: screening.manualEmailsSent || 0,
+        totalSent:
+          (screening.invitationsSent || 0) + (screening.manualEmailsSent || 0),
       },
     });
   } catch (error) {
@@ -388,117 +440,9 @@ exports.getCVsWithoutEmail = async (req, res) => {
   }
 };
 
-// ---------------------- Download CV File ---------------------- //
-exports.downloadCV = async (req, res) => {
-  try {
-    const { fileId } = req.params;
-
-    const cvFile = await CVFile.findById(fileId);
-
-    if (!cvFile) {
-      return res.status(404).json({ message: "CV file not found" });
-    }
-
-    // Check if user has permission to access this file
-    const screening = await CVScreening.findOne({
-      "results.cvFile": fileId,
-      createdBy: req.user.id,
-    });
-
-    if (!screening && cvFile.uploadedBy.toString() !== req.user.id) {
-      return res.status(403).json({ message: "Access denied" });
-    }
-
-    // Set appropriate headers
-    res.setHeader("Content-Type", cvFile.fileType);
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${cvFile.originalName}"`
-    );
-    res.setHeader("Content-Length", cvFile.fileData.length);
-
-    // Send file buffer
-    res.send(cvFile.fileData);
-  } catch (err) {
-    console.error("Download CV Error:", err);
-    res.status(500).json({ message: "Failed to download CV" });
-  }
-};
-
-// ---------------------- Send Registration Link (UPDATED) ---------------------- //
-// exports.sendRegistrationLink = async (req, res) => {
-//   const session = await mongoose.startSession();
-//   session.startTransaction();
-
-//   try {
-//     const { email, screeningId, fileName } = req.body;
-//     const userId = req.user.id;
-
-//     if (!email) return res.status(400).json({ message: "Email is required" });
-
-//     // Update screening record if screeningId provided
-//     if (screeningId && fileName) {
-//       await CVScreening.updateOne(
-//         {
-//           screeningId,
-//           createdBy: userId,
-//           "results.fileName": fileName,
-//         },
-//         {
-//           $set: {
-//             "results.$.emailSent": true,
-//             "results.$.emailSentTo": email,
-//             "results.$.emailSentAt": new Date(),
-//           },
-//           $inc: { invitationsSent: 1 },
-//         },
-//         { session }
-//       );
-//     }
-
-//     const registrationLink = `https://devlupa.netlify.app/register?email=${encodeURIComponent(
-//       email
-//     )}`;
-
-//     await transporter.sendMail({
-//       from: `"DevLupa Support" <${process.env.EMAIL_USER}>`,
-//       to: email,
-//       subject: "DevLupa Internship Registration Link",
-//       html: `
-//     <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-//       <h2 style="color: #2c3e50;">Hello 👋,</h2>
-//       <p>You have been found eligible for the internship!</p>
-//       <p>Click the link below to register:</p>
-//       <p>
-//         <a href="${registrationLink}"
-//            style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
-//            Register Now
-//         </a>
-//       </p>
-//       <br/>
-//       <p>– DevLupa Team</p>
-//     </div>
-//   `,
-//     });
-
-//     await session.commitTransaction();
-
-//     res.json({
-//       message: `Registration link sent to ${email}`,
-//       screeningUpdated: !!screeningId,
-//     });
-//   } catch (err) {
-//     await session.abortTransaction();
-//     console.error("Send Email Error:", err);
-//     res.status(500).json({ message: "Failed to send email" });
-//   } finally {
-//     session.endSession();
-//   }
-// };
-
 // ---------------------- SEND SINGLE REGISTRATION LINK ---------------------- //
 exports.sendRegistrationLink = async (req, res) => {
-  const { email, screeningId, fileName } = req.body;
+  const { email, screeningId, fileName, isManual = false } = req.body;
 
   try {
     if (!email) {
@@ -514,7 +458,7 @@ exports.sendRegistrationLink = async (req, res) => {
     const msg = {
       to: email.trim(),
       from: {
-        email: "fmprabhath@gmail.com", // Your verified SendGrid sender
+        email: "fmprabhath@gmail.com",
         name: "DevLupa Internship Program",
       },
       subject: "Registration for DevLupa Internship Program",
@@ -573,29 +517,42 @@ exports.sendRegistrationLink = async (req, res) => {
     // Update screening record if screeningId provided
     if (screeningId && fileName) {
       try {
-        await CVScreening.updateOne(
+        const updateFields = {
+          $set: {
+            "results.$.emailSent": true,
+            "results.$.emailSentTo": email,
+            "results.$.emailSentAt": new Date(),
+            "results.$.emailType": isManual ? "manual" : "extracted",
+          },
+        };
+
+        // Increment the appropriate counter - FIXED: Don't override, use $inc to add
+        if (isManual) {
+          updateFields.$inc = { manualEmailsSent: 1 };
+        } else {
+          updateFields.$inc = { invitationsSent: 1 };
+        }
+
+        const result = await CVScreening.updateOne(
           {
             screeningId,
             "results.fileName": fileName,
           },
-          {
-            $set: {
-              "results.$.emailSent": true,
-              "results.$.emailSentTo": email,
-              "results.$.emailSentAt": new Date(),
-            },
-            $inc: { invitationsSent: 1 },
-          }
+          updateFields
         );
-        console.log("✅ Screening record updated for:", fileName);
+
+        // console.log("✅ Screening record updated for:", fileName);
+        // console.log("✅ Update result:", result);
       } catch (updateError) {
         console.error("❌ Failed to update screening:", updateError);
+        throw updateError;
       }
     }
 
     res.status(200).json({
       message: "Registration email sent successfully.",
       screeningUpdated: !!screeningId,
+      isManual: isManual,
     });
   } catch (error) {
     console.error(
@@ -609,113 +566,6 @@ exports.sendRegistrationLink = async (req, res) => {
   }
 };
 
-// ---------------------- Send Bulk Registration Links (UPDATED) ---------------------- //
-// exports.sendBulkRegistrationLinks = async (req, res) => {
-//   const session = await mongoose.startSession();
-//   session.startTransaction();
-
-//   try {
-//     const { emails, screeningId } = req.body;
-//     const userId = req.user.id;
-
-//     if (!emails || !Array.isArray(emails) || emails.length === 0) {
-//       return res.status(400).json({ message: "Email list is required" });
-//     }
-
-//     const sentEmails = [];
-//     const failedEmails = [];
-
-//     for (const emailData of emails) {
-//       try {
-//         const { email, fileName } = emailData;
-
-//         // Skip empty or invalid emails
-//         if (!email || !email.trim() || !isValidEmail(email)) {
-//           failedEmails.push({
-//             email,
-//             fileName,
-//             reason: "Invalid email address",
-//           });
-//           continue;
-//         }
-
-//         // Update screening record if screeningId provided
-//         if (screeningId && fileName) {
-//           await CVScreening.updateOne(
-//             {
-//               screeningId,
-//               createdBy: userId,
-//               "results.fileName": fileName,
-//             },
-//             {
-//               $set: {
-//                 "results.$.emailSent": true,
-//                 "results.$.emailSentTo": email,
-//                 "results.$.emailSentAt": new Date(),
-//               },
-//               $inc: { invitationsSent: 1 },
-//             },
-//             { session }
-//           );
-//         }
-
-//         const registrationLink = `https://devlupa.netlify.app/register?email=${encodeURIComponent(
-//           email
-//         )}`;
-
-//         await transporter.sendMail({
-//           from: `"DevLupa Support" <${process.env.EMAIL_USER}>`,
-//           to: email,
-//           subject: "DevLupa Internship Registration Link",
-//           html: `
-//             <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-//               <h2 style="color: #2c3e50;">Hello 👋,</h2>
-//               <p>You have been found eligible for the internship!</p>
-//               <p>Click the link below to register:</p>
-//               <p>
-//                 <a href="${registrationLink}"
-//                    style="background-color:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:6px;display:inline-block;">
-//                    Register Now
-//                 </a>
-//               </p>
-//               <br/>
-//               <p>– DevLupa Team</p>
-//             </div>
-//           `,
-//         });
-
-//         sentEmails.push({ email, fileName });
-//       } catch (emailError) {
-//         console.error(
-//           `Failed to send email to ${emailData.email}:`,
-//           emailError
-//         );
-//         failedEmails.push({
-//           email: emailData.email,
-//           fileName: emailData.fileName,
-//           reason: "Email delivery failed",
-//         });
-//       }
-//     }
-
-//     await session.commitTransaction();
-
-//     res.json({
-//       message: `Sent ${sentEmails.length} registration links successfully`,
-//       sentEmails,
-//       failedEmails,
-//       totalSent: sentEmails.length,
-//       totalFailed: failedEmails.length,
-//     });
-//   } catch (err) {
-//     await session.abortTransaction();
-//     console.error("Bulk Email Send Error:", err);
-//     res.status(500).json({ message: "Failed to send bulk emails" });
-//   } finally {
-//     session.endSession();
-//   }
-// };
-
 // ---------------------- SEND BULK REGISTRATION LINKS ---------------------- //
 exports.sendBulkRegistrationLinks = async (req, res) => {
   const session = await mongoose.startSession();
@@ -725,7 +575,7 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
     const { emails, screeningId } = req.body;
     const userId = req.user.id;
 
-    console.log("Received bulk email request:", req.body);
+    // console.log("Received bulk email request:", req.body);
 
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
       return res
@@ -737,9 +587,14 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
     const sentEmails = [];
     const failedEmails = [];
 
+    let manualEmailCount = 0;
+    let extractedEmailCount = 0;
+
     for (const emailData of emails) {
       try {
-        let email, fileName;
+        let email,
+          fileName,
+          isManual = false;
 
         if (typeof emailData === "string") {
           email = emailData;
@@ -747,6 +602,7 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
         } else if (typeof emailData === "object" && emailData.email) {
           email = emailData.email;
           fileName = emailData.fileName || "";
+          isManual = emailData.isManual || false;
         } else {
           throw new Error("Invalid email data format");
         }
@@ -787,29 +643,38 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
         await sgMail.send(msg);
 
         console.log("✅ Email sent via SendGrid:", email);
-        sendResults.push({ email, fileName, status: "sent" });
-        sentEmails.push({ email, fileName });
+        sendResults.push({ email, fileName, status: "sent", isManual });
+        sentEmails.push({ email, fileName, isManual });
+
+        // Count email types
+        if (isManual) {
+          manualEmailCount++;
+        } else {
+          extractedEmailCount++;
+        }
 
         // Update screening record if screeningId provided
         if (screeningId && fileName) {
           try {
+            const updateFields = {
+              $set: {
+                "results.$.emailSent": true,
+                "results.$.emailSentTo": email,
+                "results.$.emailSentAt": new Date(),
+                "results.$.emailType": isManual ? "manual" : "extracted",
+              },
+            };
+
             await CVScreening.updateOne(
               {
                 screeningId,
                 createdBy: userId,
                 "results.fileName": fileName,
               },
-              {
-                $set: {
-                  "results.$.emailSent": true,
-                  "results.$.emailSentTo": email,
-                  "results.$.emailSentAt": new Date(),
-                },
-                $inc: { invitationsSent: 1 },
-              },
+              updateFields,
               { session }
             );
-            console.log(`✅ Updated screening record for ${fileName}`);
+            // console.log(`✅ Updated screening record for ${fileName}`);
           } catch (updateError) {
             console.error(
               `❌ Failed to update screening for ${fileName}:`,
@@ -825,14 +690,54 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
             : emailData.email || JSON.stringify(emailData);
         const fileName =
           typeof emailData === "object" ? emailData.fileName || "" : "";
+        const isManual =
+          typeof emailData === "object" ? emailData.isManual || false : false;
 
         sendResults.push({
           email,
           fileName,
           status: "failed",
           error: sendError.message,
+          isManual,
         });
-        failedEmails.push({ email, fileName, reason: sendError.message });
+        failedEmails.push({
+          email,
+          fileName,
+          reason: sendError.message,
+          isManual,
+        });
+      }
+    }
+
+    // Update the screening with total counts - FIXED: Use $inc to add to existing counts
+    if (screeningId) {
+      try {
+        const updateCounts = {};
+
+        if (extractedEmailCount > 0) {
+          updateCounts.$inc = { invitationsSent: extractedEmailCount };
+        }
+
+        if (manualEmailCount > 0) {
+          if (updateCounts.$inc) {
+            updateCounts.$inc.manualEmailsSent = manualEmailCount;
+          } else {
+            updateCounts.$inc = { manualEmailsSent: manualEmailCount };
+          }
+        }
+
+        if (updateCounts.$inc) {
+          await CVScreening.updateOne(
+            { screeningId, createdBy: userId },
+            updateCounts,
+            { session }
+          );
+          // console.log(
+          //   `✅ Updated screening counts: ${extractedEmailCount} extracted, ${manualEmailCount} manual`
+          // );
+        }
+      } catch (countError) {
+        console.error("❌ Failed to update screening counts:", countError);
       }
     }
 
@@ -849,6 +754,8 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
       results: sendResults,
       totalSent: successfulSends,
       totalFailed: failedEmails.length,
+      manualEmailCount: manualEmailCount,
+      extractedEmailCount: extractedEmailCount,
     });
   } catch (error) {
     await session.abortTransaction();
@@ -859,6 +766,43 @@ exports.sendBulkRegistrationLinks = async (req, res) => {
     });
   } finally {
     session.endSession();
+  }
+};
+
+// ---------------------- Download CV File ---------------------- //
+exports.downloadCV = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+
+    const cvFile = await CVFile.findById(fileId);
+
+    if (!cvFile) {
+      return res.status(404).json({ message: "CV file not found" });
+    }
+
+    // Check if user has permission to access this file
+    const screening = await CVScreening.findOne({
+      "results.cvFile": fileId,
+      createdBy: req.user.id,
+    });
+
+    if (!screening && cvFile.uploadedBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // Set appropriate headers
+    res.setHeader("Content-Type", cvFile.fileType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${cvFile.originalName}"`
+    );
+    res.setHeader("Content-Length", cvFile.fileData.length);
+
+    // Send file buffer
+    res.send(cvFile.fileData);
+  } catch (err) {
+    console.error("Download CV Error:", err);
+    res.status(500).json({ message: "Failed to download CV" });
   }
 };
 

@@ -37,11 +37,20 @@ const cvScreeningSchema = new mongoose.Schema({
       default: false
     },
     emailSentTo: String,
-    emailSentAt: Date
+    emailSentAt: Date,
+    emailType: {
+      type: String,
+      enum: ["extracted", "manual", null],
+      default: null
+    }
   }],
   totalAnalyzed: Number,
   eligibleCount: Number,
   invitationsSent: {
+    type: Number,
+    default: 0
+  },
+  manualEmailsSent: {
     type: Number,
     default: 0
   },
