@@ -299,12 +299,19 @@ exports.getScreeningHistory = async (req, res) => {
       )
       .lean();
 
-    // Calculate total sent for each screening
-    const screenHistoryWithTotals = screenHistory.map((screening) => ({
-      ...screening,
-      totalSent:
-        (screening.invitationsSent || 0) + (screening.manualEmailsSent || 0),
-    }));
+    // Calculate total sent for each screening and remaining emails
+    const screenHistoryWithTotals = screenHistory.map((screening) => {
+      const totalSent =
+        (screening.invitationsSent || 0) + (screening.manualEmailsSent || 0);
+      const remaining = screening.eligibleCount - totalSent;
+
+      return {
+        ...screening,
+        totalSent,
+        remaining,
+        hasRemaining: remaining > 0,
+      };
+    });
 
     res.json(screenHistoryWithTotals);
   } catch (err) {
@@ -440,6 +447,73 @@ exports.getCVsWithoutEmail = async (req, res) => {
   }
 };
 
+// ---------------------- Get Eligible CVs With Email (Not Sent) ---------------------- //
+exports.getEligibleCVsWithEmail = async (req, res) => {
+  try {
+    const { screeningId } = req.params;
+    const userId = req.user.id;
+
+    // Find the screening by ID
+    const screening = await CVScreening.findOne({
+      screeningId,
+      createdBy: userId,
+    });
+
+    if (!screening) {
+      return res.status(404).json({
+        success: false,
+        message: "Screening not found",
+      });
+    }
+
+    // Filter CVs that are eligible, have valid extracted emails, but haven't had emails sent yet
+    const cvsEligibleWithEmail = screening.results
+      .filter((result) => {
+        return (
+          result.eligible &&
+          !result.error &&
+          result.extractedEmail &&
+          result.extractedEmail.trim() !== "" &&
+          isValidEmail(result.extractedEmail) &&
+          !result.emailSent
+        );
+      })
+      .map((result) => ({
+        fileName: result.fileName,
+        screeningId: screening.screeningId,
+        matchScore: result.matchScore,
+        eligible: result.eligible,
+        extractedEmail: result.extractedEmail,
+        emailSent: result.emailSent || false,
+        emailSentTo: result.emailSentTo || null,
+        emailSentAt: result.emailSentAt || null,
+      }));
+
+    res.json({
+      success: true,
+      cvs: cvsEligibleWithEmail,
+      total: cvsEligibleWithEmail.length,
+      screeningInfo: {
+        jobRequirement: screening.jobRequirement,
+        threshold: screening.threshold,
+        totalAnalyzed: screening.totalAnalyzed,
+        eligibleCount: screening.eligibleCount,
+        invitationsSent: screening.invitationsSent || 0,
+        manualEmailsSent: screening.manualEmailsSent || 0,
+        totalSent:
+          (screening.invitationsSent || 0) + (screening.manualEmailsSent || 0),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching eligible CVs with email:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch eligible CVs with email",
+      error: error.message,
+    });
+  }
+};
+
 // ---------------------- SEND SINGLE REGISTRATION LINK ---------------------- //
 exports.sendRegistrationLink = async (req, res) => {
   const { email, screeningId, fileName, isManual = false } = req.body;
@@ -514,35 +588,45 @@ exports.sendRegistrationLink = async (req, res) => {
 
     console.log("✅ Email sent successfully to:", email);
 
-    // Update screening record if screeningId provided
+    // Update screening record if screeningId provided - FIXED LOGIC
     if (screeningId && fileName) {
       try {
-        const updateFields = {
-          $set: {
-            "results.$.emailSent": true,
-            "results.$.emailSentTo": email,
-            "results.$.emailSentAt": new Date(),
-            "results.$.emailType": isManual ? "manual" : "extracted",
-          },
-        };
+        // First, find the screening to check current counts
+        const screening = await CVScreening.findOne({ screeningId });
 
-        // Increment the appropriate counter - FIXED: Don't override, use $inc to add
-        if (isManual) {
-          updateFields.$inc = { manualEmailsSent: 1 };
-        } else {
-          updateFields.$inc = { invitationsSent: 1 };
+        if (screening) {
+          // Update the specific result
+          const updateResult = await CVScreening.updateOne(
+            {
+              screeningId,
+              "results.fileName": fileName,
+            },
+            {
+              $set: {
+                "results.$.emailSent": true,
+                "results.$.emailSentTo": email,
+                "results.$.emailSentAt": new Date(),
+                "results.$.emailType": isManual ? "manual" : "extracted",
+              },
+            }
+          );
+
+          // Then update the counts - use $inc to properly increment
+          if (updateResult.modifiedCount > 0) {
+            if (isManual) {
+              await CVScreening.updateOne(
+                { screeningId },
+                { $inc: { manualEmailsSent: 1 } }
+              );
+            } else {
+              await CVScreening.updateOne(
+                { screeningId },
+                { $inc: { invitationsSent: 1 } }
+              );
+            }
+            console.log("✅ Screening record updated for:", fileName);
+          }
         }
-
-        const result = await CVScreening.updateOne(
-          {
-            screeningId,
-            "results.fileName": fileName,
-          },
-          updateFields
-        );
-
-        // console.log("✅ Screening record updated for:", fileName);
-        // console.log("✅ Update result:", result);
       } catch (updateError) {
         console.error("❌ Failed to update screening:", updateError);
         throw updateError;

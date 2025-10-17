@@ -27,11 +27,11 @@ router.get(
 // ------------------- Multer setup for CV uploads (UPDATED FOR MEMORY STORAGE) ------------------- //
 const storage = multer.memoryStorage(); // Use memory storage instead of disk storage
 
-const upload = multer({ 
+const upload = multer({
   storage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
-  }
+  },
 });
 
 // Analyze Multiple CVs
@@ -101,5 +101,12 @@ router.get(
   cvController.getCVsWithoutEmail
 );
 
+// Get eligible CVs with email for a specific screening
+router.get(
+  "/cvs-eligible-with-email/:screeningId",
+  verifyToken,
+  isAdmin,
+  cvController.getEligibleCVsWithEmail
+);
 
 module.exports = router;
