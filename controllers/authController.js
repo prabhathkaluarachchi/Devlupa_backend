@@ -26,7 +26,7 @@ const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // ------------------ Common Setup ------------------ //
-const adminEmails = ["fmprabhath@gmail.com", "admin@devlupa.com"];
+const adminEmails = ["fmprabhath@gmail.com", "achintha@allinoneholdings.com", "chandula@allinoneholdings.com", "kanchana@allinoneholdings.com", "djprabhathmix@gmail.com"];
 
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
