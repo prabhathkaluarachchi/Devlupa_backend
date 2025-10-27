@@ -22,11 +22,17 @@ const bcrypt = require("bcryptjs");
 // });
 
 // ------------------ 🔹 SendGrid (Active Email Service) ------------------ //
-const sgMail = require('@sendgrid/mail');
+const sgMail = require("@sendgrid/mail");
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // ------------------ Common Setup ------------------ //
-const adminEmails = ["fmprabhath@gmail.com", "achintha@allinoneholdings.com", "chandula@allinoneholdings.com", "kanchana@allinoneholdings.com", "djprabhathmix@gmail.com"];
+const adminEmails = [
+  "fmprabhath@gmail.com",
+  "achintha@allinoneholdings.com",
+  "chandula@allinoneholdings.com",
+  "kanchana@allinoneholdings.com",
+  "djprabhathmix@gmail.com",
+];
 
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
@@ -118,10 +124,10 @@ exports.requestPasswordReset = async (req, res) => {
       const msg = {
         to: user.email,
         from: {
-          email: 'fmprabhath@gmail.com', // Your verified SendGrid sender
-          name: 'DevLupa Support'
+          email: "fmprabhath@gmail.com", // Your verified SendGrid sender
+          name: "DevLupa Support",
         },
-        subject: 'DevLupa Password Reset',
+        subject: "DevLupa Password Reset",
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.5;">
             <h2 style="color: #2c3e50;">Password Reset Request</h2>
@@ -144,10 +150,13 @@ exports.requestPasswordReset = async (req, res) => {
       };
 
       await sgMail.send(msg);
-      
+
       console.log("✅ Password reset email sent successfully to:", user.email);
     } catch (emailError) {
-      console.error("❌ Error sending email via SendGrid:", emailError.response?.body || emailError);
+      console.error(
+        "❌ Error sending email via SendGrid:",
+        emailError.response?.body || emailError
+      );
       return res.status(500).json({
         message: "Error sending email. Please try again later.",
         error: emailError.response?.body || emailError.message,
