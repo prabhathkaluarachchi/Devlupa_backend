@@ -32,6 +32,7 @@ const adminEmails = [
   "chandula@allinoneholdings.com",
   "kanchana@allinoneholdings.com",
   "djprabhathmix@gmail.com",
+  "nethmini@allinoneholdings.com",
 ];
 
 const generateToken = (user) => {
